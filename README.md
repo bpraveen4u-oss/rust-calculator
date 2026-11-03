@@ -118,23 +118,37 @@ test-only router is not mounted by the normal server application.
 
 The experimental sync router supports
 `DELETE /v1/profiles/{profile_id}/history`. It requires a bearer token from a
-device paired to that profile, deletes all cloud history for that profile, and
-returns `204 No Content`. It keeps the pseudonymous profile (including grade),
-paired devices, and pairing metadata so the profile can sync again. The app
-must expose this request only through guardian-protected controls. The service
-authenticates a paired device, not a guardian PIN or a separate guardian role;
-the server-side guardian authorization model remains an operational assumption.
+guardian credential provisioned for that profile in the
+`X-Guardian-Authorization: Bearer <credential>` header. An ordinary linked
+device bearer token is not accepted. The endpoint deletes all cloud history for
+the profile and returns `204 No Content`. It keeps the pseudonymous profile
+(including grade), paired devices, and pairing metadata so the profile can sync
+again. The app must expose this request only through guardian-protected
+controls.
 The server records a clear timestamp and rejects history recorded at or before
 that time, preventing ordinary retries of pre-erasure queued entries from
 reintroducing them.
 
-Each history row expires 90 days after its own UTC `recorded_at` timestamp.
-Reads omit entries at or past their expiry; cleanup physically deletes expired
-rows before sync and pairing operations and from a one-minute background
-retention task. Sync activity does not change `recorded_at` or extend an
-entry's expiry. Profile activity is recorded in `profiles.last_activity_at`
-using server UTC time when a paired device successfully authenticates a sync
-read/write or history erase, creates a pairing code, or completes a pairing.
+Guardian credentials have no self-service mint or reset endpoint. The trusted
+provisioning boundary is an authorized operator/setup process with direct
+administrative access to the service database: generate a high-entropy secret
+outside the service, store only its SHA-256 hash in that profile's
+`guardian_token_hash` column, and deliver the raw secret to the guardian over a
+separately verified secure channel. Never log the secret or place it in source
+control, ordinary application traffic, or deployment parameters. Until this
+provisioning and secure delivery process is implemented and approved, the
+erasure operation is not ready for production use.
+
+The sync API rejects future client `recorded_at` values according to server
+UTC time. Each accepted history row expires 90 days after its own recorded
+timestamp. Reads omit entries at or past their expiry; cleanup physically
+deletes expired rows before sync and pairing operations and from a one-minute
+background retention task. Sync activity does not change `recorded_at` or
+extend an entry's expiry. Profile activity is recorded in
+`profiles.last_activity_at` using server UTC time when a paired device
+successfully authenticates a sync read/write or creates a pairing code,
+completes a pairing, or a valid guardian credential authenticates history
+erasure.
 Requests without valid bearer authentication and local-only calculator use do
 not count. An authenticated request counts even if its payload is later rejected.
 After expired history is removed, an empty profile and its linked-device and

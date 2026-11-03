@@ -129,7 +129,7 @@ async fn write_profile(
         }
         let valid_timestamp = sqlx::query_scalar::<_, bool>(
             "SELECT julianday(?) IS NOT NULL \
-             AND julianday(?) <= julianday('now', '+5 minutes') \
+             AND julianday(?) <= julianday('now') \
              AND julianday(?) > julianday('now', '-90 days')",
         )
         .bind(&entry.recorded_at)
@@ -216,7 +216,7 @@ async fn erase_history(
     expire_cloud_data(&pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    authorize(&pool, &profile_id, &headers).await?;
+    authorize_guardian(&pool, &profile_id, &headers).await?;
     let mut transaction = pool
         .begin()
         .await
@@ -241,6 +241,35 @@ async fn erase_history(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn authorize_guardian(
+    pool: &SqlitePool,
+    profile_id: &str,
+    headers: &HeaderMap,
+) -> Result<(), StatusCode> {
+    let token = headers
+        .get("x-guardian-authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .filter(|token| !token.is_empty())
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let token_hash = hash_device_token(token);
+    let authorized = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS( \
+           SELECT 1 FROM profiles WHERE profile_id = ? AND guardian_token_hash = ? \
+         )",
+    )
+    .bind(profile_id)
+    .bind(token_hash)
+    .fetch_one(pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if authorized {
+        Ok(())
+    } else {
+        Err(StatusCode::FORBIDDEN)
+    }
 }
 
 fn is_opaque_id(value: &str) -> bool {

@@ -104,13 +104,17 @@ mod sync_api_contract_tests {
     async fn request_history_erase(
         app: Router,
         profile_id: &str,
-        token: Option<&str>,
+        device_token: Option<&str>,
+        guardian_token: Option<&str>,
     ) -> axum::http::Response<Body> {
         let mut request = Request::builder()
             .method("DELETE")
             .uri(format!("/v1/profiles/{profile_id}/history"));
-        if let Some(token) = token {
+        if let Some(token) = device_token {
             request = request.header("authorization", format!("Bearer {token}"));
+        }
+        if let Some(token) = guardian_token {
+            request = request.header("x-guardian-authorization", format!("Bearer {token}"));
         }
         app.oneshot(
             request
@@ -481,6 +485,12 @@ mod sync_api_contract_tests {
         connect_and_migrate(&pool).await.expect("migrations apply");
         let token = "guardian-device-token";
         create_paired_profile(&pool, token, false).await;
+        let guardian_token = "guardian-secret-for-profile-a";
+        sqlx::query("UPDATE profiles SET guardian_token_hash = ? WHERE profile_id = 'profile-a'")
+            .bind(sync_api::hash_device_token(guardian_token))
+            .execute(&pool)
+            .await
+            .expect("guardian credential is provisioned");
         let erased_entry_recorded_at: String =
             sqlx::query_scalar("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 second')")
                 .fetch_one(&pool)
@@ -504,13 +514,17 @@ mod sync_api_contract_tests {
                 pairing::PairingConfig::new(vec![b'p'; 32]).expect("pairing config is valid"),
             ));
 
-        let unauthenticated = request_history_erase(app.clone(), "profile-a", None).await;
+        let device_erase = request_history_erase(app.clone(), "profile-a", Some(token), None).await;
+        assert_eq!(device_erase.status(), axum::http::StatusCode::UNAUTHORIZED);
+
+        let unauthenticated = request_history_erase(app.clone(), "profile-a", None, None).await;
         assert_eq!(
             unauthenticated.status(),
             axum::http::StatusCode::UNAUTHORIZED
         );
 
-        let erased = request_history_erase(app.clone(), "profile-a", Some(token)).await;
+        let erased =
+            request_history_erase(app.clone(), "profile-a", None, Some(guardian_token)).await;
         assert_eq!(erased.status(), axum::http::StatusCode::NO_CONTENT);
 
         let snapshot = app
@@ -568,6 +582,31 @@ mod sync_api_contract_tests {
         .await;
         assert_eq!(
             replayed_entry.status(),
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY
+        );
+
+        let future_recorded_at: String =
+            sqlx::query_scalar("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 minute')")
+                .fetch_one(&pool)
+                .await
+                .expect("future timestamp is available");
+        let future_replay = submit_sync(
+            app.clone(),
+            "profile-a",
+            token,
+            serde_json::json!({
+                "history": [{
+                    "entry_id": "entry-c",
+                    "expression": "3 + 2",
+                    "result": "5",
+                    "recorded_at": future_recorded_at,
+                    "topic_tag": "addition"
+                }]
+            }),
+        )
+        .await;
+        assert_eq!(
+            future_replay.status(),
             axum::http::StatusCode::UNPROCESSABLE_ENTITY
         );
 
@@ -681,5 +720,44 @@ mod sync_api_contract_tests {
         assert_eq!(history.len(), 1);
         assert_eq!(history[0]["entry_id"], "retained-entry");
         assert_eq!(history[0]["expression"], "2 + 2");
+    }
+
+    #[tokio::test]
+    async fn future_recorded_at_is_rejected_by_the_sync_http_contract() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("temporary SQLite database");
+        connect_and_migrate(&pool).await.expect("migrations apply");
+        let token = "future-timestamp-device-token";
+        create_paired_profile(&pool, token, false).await;
+        let future_recorded_at: String =
+            sqlx::query_scalar("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 minute')")
+                .fetch_one(&pool)
+                .await
+                .expect("future timestamp is available");
+        let app = sync_api::routes().with_state(pool);
+
+        let response = submit_sync(
+            app,
+            "profile-a",
+            token,
+            serde_json::json!({
+                "history": [{
+                    "entry_id": "future-entry",
+                    "expression": "1 + 1",
+                    "result": "2",
+                    "recorded_at": future_recorded_at,
+                    "topic_tag": "addition"
+                }]
+            }),
+        )
+        .await;
+
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 }

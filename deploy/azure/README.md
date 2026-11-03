@@ -157,18 +157,28 @@ does not extend the promised deletion.
 
 The live database runs retention cleanup on startup and before API operations,
 and the service purges expired data every minute while it is running. A
-successful paired-device sync read/write or history erase, pairing-code
-creation, or completed pairing updates the profile's `last_activity_at` using
+successful paired-device sync read/write, pairing-code creation, or completed
+pairing, and a guardian-authenticated history erase update the profile's `last_activity_at` using
 server UTC time. Requests without valid bearer authentication and local
 calculations do not count; an authenticated request counts even if its payload
 is later rejected. Expired history is never extended by profile activity. An
 empty profile, its linked devices, and pairing metadata are deleted after 90
-days without that activity. The
-service has no separate server-side guardian PIN/role; the HTTP erasure request
-is authenticated by a paired-device token and must be initiated only by the
-app's protected guardian controls. Erasure records a server-side timestamp and
-rejects later sync submissions whose history timestamp is at or before that
-clear time, preventing ordinary stale retries from restoring erased entries.
+days without that activity. The HTTP erasure request requires the profile's
+distinct guardian credential in the `X-Guardian-Authorization` header and
+must be initiated only by the app's protected guardian controls. Ordinary
+paired-device bearer credentials cannot erase history. Erasure records a
+server-side timestamp and rejects later sync submissions whose history
+timestamp is at or before that clear time, preventing ordinary stale retries
+from restoring erased entries. Future client-supplied `recorded_at` values are
+rejected; entry retention is anchored to the accepted recorded timestamp.
+
+Guardian credentials are not minted through the API. Before production use, an
+authorized operator must provision the SHA-256 hash directly in the profile
+record through a trusted, access-controlled setup process and deliver the
+high-entropy raw credential to the guardian through a separately verified
+secure channel. No public or unauthenticated mint/reset endpoint exists. This
+manual bootstrap and secret delivery procedure still requires an approved
+operational runbook.
 
 ## Mandatory production gate
 
