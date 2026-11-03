@@ -691,8 +691,12 @@ name = "learning-calculator-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "getrandom",
+ "hmac",
  "http-body-util",
  "serde",
+ "serde_json",
+ "sha2",
  "sqlx",
  "thiserror",
  "tokio",
