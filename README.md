@@ -7,6 +7,12 @@ history; no learner name, email, or freeform notes are requested or stored.
 Local history remains until explicitly cleared and is separate from cloud
 retention or deletion. Sync remains disabled by default.
 
+The calculator evaluates arithmetic expressions on-device, including
+parentheses, standard operation precedence, decimals, and proper or mixed
+fractions. Results are simplified exact fractions; a decimal equivalent is
+available separately. Incomplete and invalid expressions are reported without
+showing a misleading answer.
+
 ## Flutter app
 
 With Flutter installed and an iOS Simulator or Android emulator/device
