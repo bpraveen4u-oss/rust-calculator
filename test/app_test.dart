@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../lib/app/app_dependencies.dart';
 import '../lib/app/learning_calculator_app.dart';
+import '../lib/features/guardian/guardian_access.dart';
 
 void main() {
   testWidgets(
@@ -15,6 +16,7 @@ void main() {
         LearningCalculatorApp(
           localStore: localStore,
           syncClient: syncClient,
+          guardianAccess: _FakeGuardianAccess(),
         ),
       );
       await tester.pumpAndSettle();
@@ -59,6 +61,53 @@ void main() {
         '2 +',
       );
       expect(find.text('Incomplete expression'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'reveals grade-aware help separately and hides it for invalid input',
+    (tester) async {
+      await tester.pumpWidget(
+        LearningCalculatorApp(
+          localStore: _InMemoryLocalStore(),
+          syncClient: _FakeSyncClient(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('expression-input')),
+        '8 × 3',
+      );
+
+      expect(
+        tester.widget<SelectableText>(
+          find.byKey(const Key('calculation-result')),
+        ).data,
+        '24',
+      );
+      expect(find.byKey(const Key('calculation-hint')), findsNothing);
+      expect(find.text('Worked steps'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('learner-grade')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Grade 4').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('show-hint')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Grade 4 tip:'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('show-worked-steps')));
+      await tester.pumpAndSettle();
+      expect(find.text('Worked steps'), findsOneWidget);
+      expect(find.textContaining('8 × 3 = 24'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('expression-input')),
+        '8 + @',
+      );
+      expect(find.byKey(const Key('calculation-error')), findsOneWidget);
+      expect(find.byKey(const Key('calculation-hint')), findsNothing);
+      expect(find.text('Worked steps'), findsNothing);
     },
   );
 }
@@ -146,4 +195,21 @@ class _FakeSyncClient implements SyncClient {
   Future<void> syncPendingChanges() async {
     syncRequests++;
   }
+}
+
+class _FakeGuardianAccess implements GuardianAccess {
+  @override
+  Future<bool> hasPin() async => false;
+
+  @override
+  Future<void> setPin(String pin) async {}
+
+  @override
+  Future<bool> verifyPin(String pin) async => false;
+
+  @override
+  Future<bool> canUseBiometrics() async => false;
+
+  @override
+  Future<bool> authenticateWithBiometrics() async => false;
 }

@@ -4,6 +4,7 @@ use sqlx::{SqlitePool, migrate::MigrateError};
 use thiserror::Error;
 
 pub mod config;
+pub mod pairing;
 #[cfg(any(test, feature = "sync-legal-approved"))]
 mod sync_api;
 
@@ -30,6 +31,10 @@ pub fn app(pool: SqlitePool) -> Router {
     #[cfg(feature = "sync-legal-approved")]
     let routes = routes.merge(sync_api::routes());
     routes.with_state(pool)
+}
+
+pub fn app_with_pairing(pool: SqlitePool, config: pairing::PairingConfig) -> Router {
+    app(pool.clone()).merge(pairing::router(pool, config))
 }
 
 async fn readiness(pool: axum::extract::State<SqlitePool>) -> Result<Json<Readiness>, StatusCode> {

@@ -8,6 +8,8 @@ sync-legal-approved = []
 
 [dependencies]
 axum = { version = "0.8", features = ["json"] }
+hmac = "0.12"
+getrandom = "0.2"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "migrate"] }
