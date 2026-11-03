@@ -4,6 +4,7 @@ use sqlx::{SqlitePool, migrate::MigrateError};
 use thiserror::Error;
 
 pub mod config;
+pub mod pairing;
 
 #[derive(Debug, Error)]
 pub enum ServiceError {
@@ -27,6 +28,10 @@ pub fn app(pool: SqlitePool) -> Router {
     Router::new()
         .route("/health/ready", get(readiness))
         .with_state(pool)
+}
+
+pub fn app_with_pairing(pool: SqlitePool, config: pairing::PairingConfig) -> Router {
+    app(pool.clone()).merge(pairing::router(pool, config))
 }
 
 async fn readiness(pool: axum::extract::State<SqlitePool>) -> Result<Json<Readiness>, StatusCode> {
