@@ -89,6 +89,11 @@ abstract interface class SyncApi {
     int? grade,
     required List<SyncHistoryRecord> history,
   });
+
+  Future<void> eraseHistory({
+    required String profileId,
+    required String guardianCredential,
+  });
 }
 
 abstract interface class SyncCredentialStore {
@@ -229,10 +234,24 @@ class HttpSyncApi implements SyncApi {
     );
   }
 
+  @override
+  Future<void> eraseHistory({
+    required String profileId,
+    required String guardianCredential,
+  }) async {
+    final path = '/v1/profiles/${Uri.encodeComponent(profileId)}/history';
+    await _request(
+      'DELETE',
+      path,
+      guardianCredential: guardianCredential,
+    );
+  }
+
   Future<Map<String, dynamic>> _request(
     String method,
     String path, {
     String? bearerToken,
+    String? guardianCredential,
     Map<String, Object?>? body,
   }) async {
     final request = await _httpClient.openUrl(
@@ -242,6 +261,12 @@ class HttpSyncApi implements SyncApi {
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
     if (bearerToken != null) {
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearerToken');
+    }
+    if (guardianCredential != null) {
+      request.headers.set(
+        'X-Guardian-Authorization',
+        'Bearer $guardianCredential',
+      );
     }
     if (body != null) {
       request.headers.contentType = ContentType.json;

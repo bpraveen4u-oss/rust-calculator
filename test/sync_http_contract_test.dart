@@ -7,6 +7,70 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/features/sync/sync_dependencies.dart';
 
 void main() {
+  test('cloud history erasure uses the guardian authorization contract',
+      () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final requestReceived = Completer<HttpRequest>();
+    final serverDone = server.listen((request) async {
+      requestReceived.complete(request);
+      request.response.statusCode = HttpStatus.noContent;
+      await request.response.close();
+    });
+    final api = HttpSyncApi(
+      baseUri: Uri.parse('http://127.0.0.1:${server.port}'),
+    );
+    addTearDown(() async {
+      api.close();
+      await serverDone.cancel();
+      await server.close(force: true);
+    });
+
+    await api.eraseHistory(
+      profileId: 'cloud-profile-1',
+      guardianCredential: 'guardian-secret',
+    );
+
+    final request = await requestReceived.future;
+    expect(request.method, 'DELETE');
+    expect(request.uri.path, '/v1/profiles/cloud-profile-1/history');
+    expect(
+      request.headers.value('X-Guardian-Authorization'),
+      'Bearer guardian-secret',
+    );
+    expect(request.headers.value(HttpHeaders.authorizationHeader), isNull);
+  });
+
+  test('cloud history erasure reports unauthorized service responses',
+      () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final serverDone = server.listen((request) async {
+      request.response.statusCode = HttpStatus.unauthorized;
+      await request.response.close();
+    });
+    final api = HttpSyncApi(
+      baseUri: Uri.parse('http://127.0.0.1:${server.port}'),
+    );
+    addTearDown(() async {
+      api.close();
+      await serverDone.cancel();
+      await server.close(force: true);
+    });
+
+    await expectLater(
+      api.eraseHistory(
+        profileId: 'cloud-profile-1',
+        guardianCredential: 'guardian-secret',
+      ),
+      throwsA(
+        isA<HttpException>().having(
+          (error) => error.message,
+          'message',
+          contains('(401)'),
+        ),
+      ),
+    );
+  });
+
   test('HTTP sync uses the Rust history contract in both directions', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final responseJson = {

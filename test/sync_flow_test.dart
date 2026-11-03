@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -162,6 +163,36 @@ void main() {
       expect(api.serverHistory, hasLength(3));
     },
   );
+
+  test('cloud history erasure targets the linked cloud profile', () async {
+    final store = SqliteLocalStore(
+      databaseFactory: databaseFactoryFfi,
+      databasePath: inMemoryDatabasePath,
+    );
+    await store.initialize();
+    final profile = await store.createProfile(grade: 4);
+    await store.linkSyncProfile(
+      localProfileId: profile.id,
+      remoteProfileId: 'cloud-profile-1',
+    );
+    final api = _FakeSyncApi();
+    final syncClient = SyncCoordinator(
+      localStore: store,
+      api: api,
+      credentials: _InMemoryCredentials(),
+      connectivity: _ControllableConnectivity(initiallyOnline: true),
+      enabled: true,
+    );
+    addTearDown(() async {
+      await syncClient.dispose();
+      await store.close();
+    });
+
+    await syncClient.eraseCloudHistory(profile.id, 'guardian-secret');
+
+    expect(api.erasedProfileId, 'cloud-profile-1');
+    expect(api.guardianCredential, 'guardian-secret');
+  });
 }
 
 class _FakeSyncApi implements SyncApi {
@@ -170,6 +201,8 @@ class _FakeSyncApi implements SyncApi {
   final List<SyncHistoryRecord> remoteEntries = [];
   Completer<void>? _nextSyncCompleted;
   bool failNextSyncAfterAcceptingChanges = false;
+  String? erasedProfileId;
+  String? guardianCredential;
 
   List<SyncHistoryRecord> get serverHistory => List.unmodifiable(remoteEntries);
 
@@ -227,6 +260,15 @@ class _FakeSyncApi implements SyncApi {
         code: 'ABCD-2345',
         expiresAt: DateTime.utc(2026, 11, 2, 12, 10),
       );
+
+  @override
+  Future<void> eraseHistory({
+    required String profileId,
+    required String guardianCredential,
+  }) async {
+    erasedProfileId = profileId;
+    this.guardianCredential = guardianCredential;
+  }
 }
 
 class _ControllableConnectivity implements ConnectivitySource {

@@ -17,9 +17,9 @@ abstract interface class GuardianAccess {
 class SecureGuardianAccess implements GuardianAccess {
   SecureGuardianAccess({
     FlutterSecureStorage secureStorage = const FlutterSecureStorage(),
-    LocalAuthentication localAuthentication = const LocalAuthentication(),
+    LocalAuthentication? localAuthentication,
   }) : _secureStorage = secureStorage,
-       _localAuthentication = localAuthentication;
+       _localAuthentication = localAuthentication ?? LocalAuthentication();
 
   static const _pinKey = 'guardian_pin';
 

@@ -41,6 +41,11 @@ abstract interface class SyncClient {
 
   Future<void> syncPendingChanges();
 
+  Future<void> eraseCloudHistory(
+    String localProfileId,
+    String guardianCredential,
+  );
+
   Future<void> pairDevice(String localProfileId, String code);
 
   Future<String> createPairingCode(String localProfileId);

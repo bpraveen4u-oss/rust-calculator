@@ -99,9 +99,9 @@ class _CalculatorHomePageState extends State<CalculatorHomePage> {
         future: _storeReady,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return const Center(
-              child: Semantics(
-                liveRegion: true,
+            return Semantics(
+              liveRegion: true,
+              child: const Center(
                 child: Text('Unable to load the learner profile.'),
               ),
             );

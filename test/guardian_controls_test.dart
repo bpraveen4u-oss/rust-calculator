@@ -51,6 +51,10 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('no recovery key'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('guardian-start-pairing')),
+        100,
+      );
       expect(
         tester.widget<FilledButton>(
           find.byKey(const Key('guardian-start-pairing')),
@@ -60,8 +64,9 @@ void main() {
       expect(guardianAccess.savedPin, '123456');
       expect(find.textContaining('does not provide consent'), findsOneWidget);
 
-      await tester.ensureVisible(
+      await tester.scrollUntilVisible(
         find.byKey(const Key('guardian-pairing-opt-in')),
+        100,
       );
       await tester.tap(find.byKey(const Key('guardian-pairing-opt-in')));
       await tester.pumpAndSettle();
@@ -71,8 +76,9 @@ void main() {
         ).onPressed,
         isNotNull,
       );
-      await tester.ensureVisible(
+      await tester.scrollUntilVisible(
         find.byKey(const Key('guardian-start-pairing')),
+        100,
       );
       await tester.tap(find.byKey(const Key('guardian-start-pairing')));
       await tester.pumpAndSettle();
@@ -81,6 +87,129 @@ void main() {
         findsOneWidget,
       );
       expect(syncClient.syncRequests, 0);
+    },
+  );
+
+  testWidgets(
+    'a guardian can erase cloud history without clearing local data',
+    (tester) async {
+      final localStore = _InMemoryLocalStore();
+      final syncClient = _FakeSyncClient()..pairingAvailable = true;
+      await tester.pumpWidget(
+        LearningCalculatorApp(
+          localStore: localStore,
+          syncClient: syncClient,
+          guardianAccess: _FakeGuardianAccess()..savedPin = '654321',
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Guardian controls'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('guardian-unlock-pin')),
+        '654321',
+      );
+      await tester.tap(find.byKey(const Key('guardian-unlock')));
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('guardian-erase-credential')),
+        100,
+      );
+      await tester.enterText(
+        find.byKey(const Key('guardian-erase-credential')),
+        'guardian-secret',
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('guardian-erase-cloud-history')),
+        100,
+        scrollable: find
+            .descendant(
+              of: find.byType(ListView).last,
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.tap(find.byKey(const Key('guardian-erase-cloud-history')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'This permanently deletes cloud history for this learner. '
+          'Local history on this device will not be deleted.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('guardian-confirm-cloud-erase')));
+      await tester.pumpAndSettle();
+
+      expect(syncClient.erasedProfileId, 'local-profile-1');
+      expect(syncClient.erasedCredential, 'guardian-secret');
+      expect(localStore.clearHistoryCalls, 0);
+      expect(find.text('Cloud history deleted.'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const Key('guardian-erase-credential')),
+            )
+            .controller!
+            .text,
+        isEmpty,
+      );
+    },
+  );
+
+  testWidgets(
+    'cloud history erasure reports failure without exposing secrets',
+    (tester) async {
+      final syncClient = _FakeSyncClient()
+        ..pairingAvailable = true
+        ..eraseError = true;
+      await tester.pumpWidget(
+        LearningCalculatorApp(
+          localStore: _InMemoryLocalStore(),
+          syncClient: syncClient,
+          guardianAccess: _FakeGuardianAccess()..savedPin = '654321',
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Guardian controls'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('guardian-unlock-pin')),
+        '654321',
+      );
+      await tester.tap(find.byKey(const Key('guardian-unlock')));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('guardian-erase-credential')),
+        100,
+      );
+      await tester.enterText(
+        find.byKey(const Key('guardian-erase-credential')),
+        'guardian-secret',
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('guardian-erase-cloud-history')),
+        100,
+        scrollable: find
+            .descendant(
+              of: find.byType(ListView).last,
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.tap(find.byKey(const Key('guardian-erase-cloud-history')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('guardian-confirm-cloud-erase')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Could not delete cloud history. Check the credential and '
+            'connection, then try again.'),
+        findsOneWidget,
+      );
+      expect(find.text('guardian-secret'), findsNothing);
     },
   );
 
@@ -188,6 +317,8 @@ class _FakeGuardianAccess implements GuardianAccess {
 }
 
 class _InMemoryLocalStore implements LocalStore {
+  int clearHistoryCalls = 0;
+
   @override
   Future<void> initialize() async {}
 
@@ -199,7 +330,13 @@ class _InMemoryLocalStore implements LocalStore {
 
   @override
   Future<LearnerProfile> createProfile({required int grade}) {
-    throw UnimplementedError();
+    return Future.value(
+      LearnerProfile(
+        id: 'local-profile-1',
+        grade: grade,
+        createdAt: DateTime.now().toUtc(),
+      ),
+    );
   }
 
   @override
@@ -226,7 +363,9 @@ class _InMemoryLocalStore implements LocalStore {
       [];
 
   @override
-  Future<void> clearHistory(String profileId) async {}
+  Future<void> clearHistory(String profileId) async {
+    clearHistoryCalls++;
+  }
 
   @override
   Future<void> linkSyncProfile({
@@ -267,6 +406,11 @@ class _InMemoryLocalStore implements LocalStore {
 
 class _FakeSyncClient implements SyncClient {
   int syncRequests = 0;
+  @override
+  bool pairingAvailable = false;
+  bool eraseError = false;
+  String? erasedProfileId;
+  String? erasedCredential;
 
   @override
   SyncStatus get status => const SyncStatus(phase: SyncPhase.disabled);
@@ -275,14 +419,21 @@ class _FakeSyncClient implements SyncClient {
   Stream<SyncStatus> get statusChanges => const Stream<SyncStatus>.empty();
 
   @override
-  bool get pairingAvailable => false;
-
-  @override
   Future<void> initialize() async {}
 
   @override
   Future<void> syncPendingChanges() async {
     syncRequests++;
+  }
+
+  @override
+  Future<void> eraseCloudHistory(
+    String localProfileId,
+    String guardianCredential,
+  ) async {
+    if (eraseError) throw StateError('unauthorized');
+    erasedProfileId = localProfileId;
+    erasedCredential = guardianCredential;
   }
 
   @override

@@ -19,6 +19,14 @@ class DisabledSyncClient implements SyncClient {
   Future<void> syncPendingChanges() async {}
 
   @override
+  Future<void> eraseCloudHistory(
+    String localProfileId,
+    String guardianCredential,
+  ) async {
+    throw StateError('Cloud sync is disabled pending legal/privacy review.');
+  }
+
+  @override
   Future<void> pairDevice(String localProfileId, String code) async {
     throw StateError('Cloud sync is disabled pending legal/privacy review.');
   }

@@ -31,12 +31,15 @@ void main() {
         find.byKey(const Key('expression-input')),
         '24 ÷ 6',
       );
+      await tester.pumpAndSettle();
 
       expect(find.text('24 ÷ 6'), findsOneWidget);
       expect(
-        tester.widget<SelectableText>(
-          find.byKey(const Key('calculation-result')),
-        ).data,
+        tester
+            .widget<SelectableText>(
+              find.byKey(const Key('calculation-result')),
+            )
+            .data,
         '4',
       );
 
@@ -44,10 +47,13 @@ void main() {
         find.byKey(const Key('expression-input')),
         '1/3',
       );
+      await tester.pumpAndSettle();
       expect(
-        tester.widget<SelectableText>(
-          find.byKey(const Key('calculation-result')),
-        ).data,
+        tester
+            .widget<SelectableText>(
+              find.byKey(const Key('calculation-result')),
+            )
+            .data,
         '1/3',
       );
       expect(find.text('≈ 0.333333'), findsNothing);
@@ -60,6 +66,7 @@ void main() {
         find.byKey(const Key('expression-input')),
         '2 +',
       );
+      await tester.pumpAndSettle();
       expect(find.text('Incomplete expression'), findsOneWidget);
     },
   );
@@ -79,11 +86,14 @@ void main() {
         find.byKey(const Key('expression-input')),
         '8 × 3',
       );
+      await tester.pumpAndSettle();
 
       expect(
-        tester.widget<SelectableText>(
-          find.byKey(const Key('calculation-result')),
-        ).data,
+        tester
+            .widget<SelectableText>(
+              find.byKey(const Key('calculation-result')),
+            )
+            .data,
         '24',
       );
       expect(find.byKey(const Key('calculation-hint')), findsNothing);
@@ -106,6 +116,7 @@ void main() {
         find.byKey(const Key('expression-input')),
         '8 + @',
       );
+      await tester.pumpAndSettle();
       expect(find.byKey(const Key('calculation-error')), findsOneWidget);
       expect(find.byKey(const Key('calculation-hint')), findsNothing);
       expect(find.text('Worked steps'), findsNothing);
@@ -133,14 +144,17 @@ void main() {
         find.byKey(const Key('expression-input')),
         '3/4 + 1/4',
       );
+      await tester.pumpAndSettle();
       expect(
-        tester.widget<SelectableText>(
-          find.byKey(const Key('calculation-result')),
-        ).data,
+        tester
+            .widget<SelectableText>(
+              find.byKey(const Key('calculation-result')),
+            )
+            .data,
         '1',
       );
 
-      tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('show-history')));
       await tester.pumpAndSettle();
@@ -163,8 +177,9 @@ void main() {
   testWidgets('calculator keys build a calculation with labeled controls', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
     final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
 
     await tester.pumpWidget(
       LearningCalculatorApp(
@@ -179,14 +194,26 @@ void main() {
     await tester.tap(find.byKey(const Key('keypad-8')));
     await tester.tap(find.byKey(const Key('keypad-multiply')));
     await tester.tap(find.byKey(const Key('keypad-3')));
-
+    await tester.pumpAndSettle();
     expect(
-      tester.widget<SelectableText>(
-        find.byKey(const Key('calculation-result')),
-      ).data,
+      tester
+          .widget<TextField>(find.byKey(const Key('expression-input')))
+          .controller!
+          .text,
+      '8×3',
+    );
+    expect(
+      tester
+          .widget<SelectableText>(
+            find.byKey(const Key('calculation-result')),
+          )
+          .data,
       '24',
     );
     expect(find.bySemanticsLabel('Multiply'), findsOneWidget);
+    semantics.dispose();
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
   });
 }
 
@@ -321,6 +348,12 @@ class _FakeSyncClient implements SyncClient {
   Future<void> syncPendingChanges() async {
     syncRequests++;
   }
+
+  @override
+  Future<void> eraseCloudHistory(
+    String localProfileId,
+    String guardianCredential,
+  ) async {}
 
   @override
   Future<void> pairDevice(String localProfileId, String code) async {}

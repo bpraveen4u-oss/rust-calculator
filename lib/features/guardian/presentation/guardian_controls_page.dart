@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../app/app_dependencies.dart';
 import '../guardian_access.dart';
@@ -25,6 +26,7 @@ class _GuardianControlsPageState extends State<GuardianControlsPage> {
   final _pinController = TextEditingController();
   final _confirmPinController = TextEditingController();
   final _pairingCodeController = TextEditingController();
+  final _eraseCredentialController = TextEditingController();
   String? _message;
   String? _createdCode;
   bool _isUnlocked = false;
@@ -43,6 +45,7 @@ class _GuardianControlsPageState extends State<GuardianControlsPage> {
     _pinController.dispose();
     _confirmPinController.dispose();
     _pairingCodeController.dispose();
+    _eraseCredentialController.dispose();
     super.dispose();
   }
 
@@ -217,6 +220,37 @@ class _GuardianControlsPageState extends State<GuardianControlsPage> {
             const Text(
               'This acknowledgement does not provide consent or enable sync.',
             ),
+            if (widget.syncClient.pairingAvailable) ...[
+              const SizedBox(height: 20),
+              Text(
+                'Delete cloud history',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Enter the separately provisioned guardian credential to '
+                'permanently delete this learner’s cloud history. The '
+                'credential is used only for this request. Local history on '
+                'this device will not be deleted.',
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('guardian-erase-credential'),
+                controller: _eraseCredentialController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Guardian erasure credential',
+                ),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                key: const Key('guardian-erase-cloud-history'),
+                onPressed: _isBusy ? null : _confirmCloudHistoryErasure,
+                child: const Text('Delete cloud history'),
+              ),
+            ],
+            const SizedBox(height: 12),
             CheckboxListTile(
               key: const Key('guardian-pairing-opt-in'),
               value: _pairingRequested,
@@ -358,6 +392,62 @@ class _GuardianControlsPageState extends State<GuardianControlsPage> {
           : 'Pairing is not available in this experiment.';
       _createdCode = null;
     });
+  }
+
+  Future<void> _confirmCloudHistoryErasure() async {
+    final credential = _eraseCredentialController.text.trim();
+    if (credential.isEmpty) {
+      setState(() => _message = 'Enter the guardian erasure credential.');
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete cloud history?'),
+        content: const Text(
+          'This permanently deletes cloud history for this learner. '
+          'Local history on this device will not be deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('guardian-confirm-cloud-erase'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete cloud history'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (confirmed != true) {
+      _eraseCredentialController.clear();
+      return;
+    }
+
+    setState(() {
+      _isBusy = true;
+      _message = null;
+    });
+    try {
+      await widget.syncClient.eraseCloudHistory(
+        widget.localProfileId,
+        credential,
+      );
+      if (mounted) setState(() => _message = 'Cloud history deleted.');
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _message = 'Could not delete cloud history. Check the '
+              'credential and connection, then try again.',
+        );
+      }
+    } finally {
+      _eraseCredentialController.clear();
+      if (mounted) setState(() => _isBusy = false);
+    }
   }
 
   Future<void> _submitPairingCode() async {

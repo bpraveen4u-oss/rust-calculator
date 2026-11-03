@@ -45,6 +45,7 @@ class SyncCoordinator implements SyncClient {
   @override
   bool get pairingAvailable => _enabled;
 
+  @override
   Future<void> initialize() async {
     if (!_enabled || _disposed) return;
     _connectivitySubscription ??= _connectivity.changes.listen(
@@ -125,6 +126,40 @@ class SyncCoordinator implements SyncClient {
     return operation.whenComplete(() {
       if (identical(_syncing, operation)) _syncing = null;
     });
+  }
+
+  @override
+  Future<void> eraseCloudHistory(
+    String localProfileId,
+    String guardianCredential,
+  ) async {
+    _ensureEnabled();
+    final credential = guardianCredential.trim();
+    if (credential.isEmpty) {
+      throw ArgumentError.value(
+        guardianCredential,
+        'guardianCredential',
+        'Enter the guardian credential.',
+      );
+    }
+    if (!await _connectivity.isOnline) {
+      await _refreshStatus(SyncPhase.waitingForConnection);
+      throw StateError('Connect to the internet to delete cloud history.');
+    }
+    SyncProfileState? linkedProfile;
+    for (final profile in await _localStore.getSyncProfiles()) {
+      if (profile.profile.id == localProfileId) {
+        linkedProfile = profile;
+        break;
+      }
+    }
+    if (linkedProfile == null) {
+      throw StateError('This learner profile is not paired with cloud sync.');
+    }
+    await _api.eraseHistory(
+      profileId: linkedProfile.remoteProfileId,
+      guardianCredential: credential,
+    );
   }
 
   Future<void> _runSync() async {
