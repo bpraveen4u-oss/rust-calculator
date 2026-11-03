@@ -61,6 +61,53 @@ void main() {
       expect(find.text('Incomplete expression'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'reveals grade-aware help separately and hides it for invalid input',
+    (tester) async {
+      await tester.pumpWidget(
+        LearningCalculatorApp(
+          localStore: _InMemoryLocalStore(),
+          syncClient: _FakeSyncClient(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('expression-input')),
+        '8 × 3',
+      );
+
+      expect(
+        tester.widget<SelectableText>(
+          find.byKey(const Key('calculation-result')),
+        ).data,
+        '24',
+      );
+      expect(find.byKey(const Key('calculation-hint')), findsNothing);
+      expect(find.text('Worked steps'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('learner-grade')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Grade 4').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('show-hint')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Grade 4 tip:'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('show-worked-steps')));
+      await tester.pumpAndSettle();
+      expect(find.text('Worked steps'), findsOneWidget);
+      expect(find.textContaining('8 × 3 = 24'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('expression-input')),
+        '8 + @',
+      );
+      expect(find.byKey(const Key('calculation-error')), findsOneWidget);
+      expect(find.byKey(const Key('calculation-hint')), findsNothing);
+      expect(find.text('Worked steps'), findsNothing);
+    },
+  );
 }
 
 class _InMemoryLocalStore implements LocalStore {

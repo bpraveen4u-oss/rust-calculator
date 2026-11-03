@@ -4,6 +4,27 @@ sealed class EvaluationOutcome {
   const EvaluationOutcome();
 }
 
+final class DetailedEvaluation {
+  const DetailedEvaluation(this.outcome, this.steps);
+
+  final EvaluationOutcome outcome;
+  final List<CalculationStep> steps;
+}
+
+final class CalculationStep {
+  const CalculationStep({
+    required this.left,
+    required this.operator,
+    required this.right,
+    required this.result,
+  });
+
+  final ExactRational left;
+  final String operator;
+  final ExactRational right;
+  final ExactRational result;
+}
+
 final class EvaluationSuccess extends EvaluationOutcome {
   const EvaluationSuccess(this.value);
 
@@ -110,11 +131,22 @@ final class ExactRational {
 class ExpressionEvaluator {
   const ExpressionEvaluator();
 
-  EvaluationOutcome evaluate(String expression) {
+  EvaluationOutcome evaluate(String expression) =>
+      evaluateWithSteps(expression).outcome;
+
+  DetailedEvaluation evaluateWithSteps(String expression) {
+    final steps = <CalculationStep>[];
     try {
-      return EvaluationSuccess(_ExpressionParser(expression).parse());
+      final value = _ExpressionParser(expression, steps).parse();
+      return DetailedEvaluation(
+        EvaluationSuccess(value),
+        List.unmodifiable(steps),
+      );
     } on _ExpressionError catch (error) {
-      return EvaluationFailure(error.kind, error.message);
+      return DetailedEvaluation(
+        EvaluationFailure(error.kind, error.message),
+        const [],
+      );
     }
   }
 }
@@ -145,9 +177,10 @@ final class _ExpressionError implements Exception {
 }
 
 final class _ExpressionParser {
-  _ExpressionParser(String source) : _tokens = _tokenize(source);
+  _ExpressionParser(String source, this.steps) : _tokens = _tokenize(source);
 
   final List<_Token> _tokens;
+  final List<CalculationStep> steps;
   int _position = 0;
 
   ExactRational parse() {
@@ -170,9 +203,17 @@ final class _ExpressionParser {
         _current.type == _TokenType.minus) {
       final operation = _advance().type;
       final right = _parseTerm();
-      value = operation == _TokenType.plus
-          ? value.add(right)
-          : value.subtract(right);
+      final result =
+          operation == _TokenType.plus ? value.add(right) : value.subtract(right);
+      steps.add(
+        CalculationStep(
+          left: value,
+          operator: operation == _TokenType.plus ? '+' : '−',
+          right: right,
+          result: result,
+        ),
+      );
+      value = result;
     }
     return value;
   }
@@ -189,9 +230,18 @@ final class _ExpressionParser {
           'Cannot divide by zero',
         );
       }
-      value = operation == _TokenType.multiply
+      final result = operation == _TokenType.multiply
           ? value.multiply(right)
           : value.divide(right);
+      steps.add(
+        CalculationStep(
+          left: value,
+          operator: operation == _TokenType.multiply ? '×' : '÷',
+          right: right,
+          result: result,
+        ),
+      );
+      value = result;
     }
     return value;
   }

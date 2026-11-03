@@ -10,7 +10,11 @@ The calculator evaluates arithmetic expressions on-device, including
 parentheses, standard operation precedence, decimals, and proper or mixed
 fractions. Results are simplified exact fractions; a decimal equivalent is
 available separately. Incomplete and invalid expressions are reported without
-showing a misleading answer.
+showing a misleading answer. Learners can choose grades 3, 4, or 5 and reveal
+deterministic on-device hints or worked steps separately from the immediate
+answer. Fraction bars appear only for fraction addition or subtraction when
+they clarify the result; no online service is used to generate learning
+content.
 
 ## Flutter app
 
