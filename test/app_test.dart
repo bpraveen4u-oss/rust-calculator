@@ -23,6 +23,7 @@ void main() {
       expect(find.byKey(const Key('expression-input')), findsOneWidget);
       expect(localStore.initialized, isTrue);
       expect(syncClient.syncRequests, 0);
+      expect(find.text('Incomplete expression'), findsNothing);
 
       await tester.enterText(
         find.byKey(const Key('expression-input')),
@@ -30,6 +31,34 @@ void main() {
       );
 
       expect(find.text('24 ÷ 6'), findsOneWidget);
+      expect(
+        tester.widget<SelectableText>(
+          find.byKey(const Key('calculation-result')),
+        ).data,
+        '4',
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('expression-input')),
+        '1/3',
+      );
+      expect(
+        tester.widget<SelectableText>(
+          find.byKey(const Key('calculation-result')),
+        ).data,
+        '1/3',
+      );
+      expect(find.text('≈ 0.333333'), findsNothing);
+
+      await tester.tap(find.text('Show decimal'));
+      await tester.pumpAndSettle();
+      expect(find.text('≈ 0.333333'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('expression-input')),
+        '2 +',
+      );
+      expect(find.text('Incomplete expression'), findsOneWidget);
     },
   );
 }

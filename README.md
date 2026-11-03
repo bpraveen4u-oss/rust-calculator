@@ -6,6 +6,12 @@ calculator. Local storage and sync are injected through `LocalStore` and
 or make network requests. The default implementations are placeholders, not
 persistent storage or an enabled sync service.
 
+The calculator evaluates arithmetic expressions on-device, including
+parentheses, standard operation precedence, decimals, and proper or mixed
+fractions. Results are simplified exact fractions; a decimal equivalent is
+available separately. Incomplete and invalid expressions are reported without
+showing a misleading answer.
+
 ## Run
 
 With Flutter installed and an iOS Simulator or Android emulator/device
