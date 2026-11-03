@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, SqlitePool};
 
+use crate::retention::expire_cloud_data;
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SyncRequest {
@@ -35,10 +37,15 @@ struct SyncSnapshot {
 }
 
 pub(crate) fn routes() -> Router<SqlitePool> {
-    Router::new().route(
-        "/v1/profiles/{profile_id}/sync",
-        get(read_profile).post(write_profile),
-    )
+    Router::new()
+        .route(
+            "/v1/profiles/{profile_id}/sync",
+            get(read_profile).post(write_profile),
+        )
+        .route(
+            "/v1/profiles/{profile_id}/history",
+            axum::routing::delete(erase_history),
+        )
 }
 
 pub(crate) fn hash_device_token(token: &str) -> String {
@@ -56,6 +63,9 @@ async fn read_profile(
     if !is_opaque_id(&profile_id) {
         return Err(StatusCode::BAD_REQUEST);
     }
+    expire_cloud_data(&pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     authorize(&pool, &profile_id, &headers).await?;
 
     let grade = sqlx::query_scalar::<_, i32>("SELECT grade FROM profiles WHERE profile_id = ?")
@@ -91,6 +101,9 @@ async fn write_profile(
     if !is_opaque_id(&profile_id) {
         return Err(StatusCode::BAD_REQUEST);
     }
+    expire_cloud_data(&pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     authorize(&pool, &profile_id, &headers).await?;
     if request.grade.is_none() && request.history.is_empty() {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
@@ -134,6 +147,22 @@ async fn write_profile(
         .begin()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    for entry in &request.history {
+        let is_after_clear = sqlx::query_scalar::<_, bool>(
+            "SELECT history_cleared_at IS NULL \
+             OR julianday(?) > julianday(history_cleared_at) \
+             FROM profiles WHERE profile_id = ?",
+        )
+        .bind(&entry.recorded_at)
+        .bind(&profile_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .unwrap_or(false);
+        if !is_after_clear {
+            return Err(StatusCode::UNPROCESSABLE_ENTITY);
+        }
+    }
     if let Some(grade) = request.grade {
         let updated = sqlx::query(
             "UPDATE profiles SET grade = ?, \
@@ -154,7 +183,7 @@ async fn write_profile(
         sqlx::query(
             "INSERT INTO history_entries \
              (entry_id, profile_id, expression, result, recorded_at, topic_tag, expires_at) \
-             VALUES (?, ?, ?, ?, ?, ?, datetime(?, '+90 days')) \
+             VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', ?, '+90 days')) \
              ON CONFLICT(entry_id) DO NOTHING",
         )
         .bind(&entry.entry_id)
@@ -174,6 +203,44 @@ async fn write_profile(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     read_profile(State(pool), Path(profile_id), headers).await
+}
+
+async fn erase_history(
+    State(pool): State<SqlitePool>,
+    Path(profile_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, StatusCode> {
+    if !is_opaque_id(&profile_id) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    expire_cloud_data(&pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    authorize(&pool, &profile_id, &headers).await?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    sqlx::query(
+        "UPDATE profiles SET \
+         history_cleared_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+         last_activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+         WHERE profile_id = ?",
+    )
+    .bind(&profile_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    sqlx::query("DELETE FROM history_entries WHERE profile_id = ?")
+        .bind(profile_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn is_opaque_id(value: &str) -> bool {
@@ -232,17 +299,34 @@ async fn authorize(
         .filter(|token| !token.is_empty())
         .ok_or(StatusCode::UNAUTHORIZED)?;
     let token_hash = hash_device_token(token);
-    let authorized = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM devices WHERE profile_id = ? AND auth_token_hash = ?)",
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let device_id = sqlx::query_scalar::<_, String>(
+        "UPDATE devices SET last_seen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+         WHERE profile_id = ? AND auth_token_hash = ? \
+         RETURNING device_id",
     )
     .bind(profile_id)
     .bind(token_hash)
-    .fetch_one(pool)
+    .fetch_optional(&mut *transaction)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if authorized {
-        Ok(())
-    } else {
-        Err(StatusCode::FORBIDDEN)
+    if device_id.is_none() {
+        return Err(StatusCode::FORBIDDEN);
     }
+    sqlx::query(
+        "UPDATE profiles SET last_activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+         WHERE profile_id = ?",
+    )
+    .bind(profile_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(())
 }

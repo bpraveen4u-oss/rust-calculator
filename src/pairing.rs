@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
+use crate::retention::expire_cloud_data;
+
 type HmacSha256 = Hmac<Sha256>;
 
 const CODE_ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -80,6 +82,9 @@ pub(crate) fn router(pool: SqlitePool, config: PairingConfig) -> Router {
 }
 
 async fn create_code(State(state): State<PairingState>, headers: HeaderMap) -> impl IntoResponse {
+    if expire_cloud_data(&state.pool).await.is_err() {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
     let Some(token) = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
@@ -93,7 +98,7 @@ async fn create_code(State(state): State<PairingState>, headers: HeaderMap) -> i
     let profile_id = match sqlx::query_scalar::<_, String>(
         "SELECT profile_id FROM devices WHERE auth_token_hash = ?",
     )
-    .bind(token_hash)
+    .bind(&token_hash)
     .fetch_optional(&state.pool)
     .await
     {
@@ -101,6 +106,27 @@ async fn create_code(State(state): State<PairingState>, headers: HeaderMap) -> i
         Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
+
+    let updated = sqlx::query(
+        "UPDATE devices SET last_seen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+         WHERE auth_token_hash = ?",
+    )
+    .bind(&token_hash)
+    .execute(&state.pool)
+    .await;
+    if updated.is_err() {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+    let activity = sqlx::query(
+        "UPDATE profiles SET last_activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+         WHERE profile_id = ?",
+    )
+    .bind(&profile_id)
+    .execute(&state.pool)
+    .await;
+    if activity.is_err() {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
 
     let mut random = [0; CODE_LENGTH];
     if getrandom::getrandom(&mut random).is_err() {
@@ -158,6 +184,7 @@ async fn create_paired_device(
     address: SocketAddr,
     submitted_code: &str,
 ) -> Result<PairOutcome, ()> {
+    expire_cloud_data(&state.pool).await.map_err(|_| ())?;
     let client_key =
         keyed_hash(&state.config.pepper, address.ip().to_string().as_bytes()).ok_or(())?;
     let code = normalize_code(submitted_code);

@@ -5,6 +5,7 @@ use thiserror::Error;
 
 pub mod config;
 pub mod pairing;
+pub mod retention;
 #[cfg(any(test, feature = "sync-legal-approved"))]
 mod sync_api;
 
@@ -25,6 +26,8 @@ pub async fn connect_and_migrate(pool: &SqlitePool) -> Result<(), ServiceError> 
     sqlx::migrate!("./migrations").run(pool).await?;
     Ok(())
 }
+
+pub use retention::spawn_retention_worker;
 
 pub fn app(pool: SqlitePool) -> Router {
     let routes = Router::new().route("/health/ready", get(readiness));
@@ -53,7 +56,7 @@ mod sync_api_contract_tests {
     use sqlx::sqlite::SqlitePoolOptions;
     use tower::ServiceExt;
 
-    use super::{connect_and_migrate, sync_api};
+    use super::{connect_and_migrate, pairing, sync_api};
 
     async fn submit_sync(
         app: Router,
@@ -74,6 +77,50 @@ mod sync_api_contract_tests {
         .expect("sync endpoint responds")
     }
 
+    async fn create_paired_profile(pool: &sqlx::SqlitePool, token: &str, inactive: bool) {
+        sqlx::query(
+            "INSERT INTO profiles (profile_id, grade, created_at, last_activity_at) \
+             VALUES ('profile-a', 4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+             CASE WHEN ? THEN \
+             strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 days', '-1 second') \
+             ELSE strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 day') END)",
+        )
+        .bind(inactive)
+        .execute(pool)
+        .await
+        .expect("profile is persisted");
+        sqlx::query(
+            "INSERT INTO devices \
+             (device_id, profile_id, created_at, last_seen_at, auth_token_hash) \
+             VALUES ('device-a', 'profile-a', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+             strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?)",
+        )
+        .bind(sync_api::hash_device_token(token))
+        .execute(pool)
+        .await
+        .expect("paired device is persisted");
+    }
+
+    async fn request_history_erase(
+        app: Router,
+        profile_id: &str,
+        token: Option<&str>,
+    ) -> axum::http::Response<Body> {
+        let mut request = Request::builder()
+            .method("DELETE")
+            .uri(format!("/v1/profiles/{profile_id}/history"));
+        if let Some(token) = token {
+            request = request.header("authorization", format!("Bearer {token}"));
+        }
+        app.oneshot(
+            request
+                .body(Body::empty())
+                .expect("valid history erase request"),
+        )
+        .await
+        .expect("history erase endpoint responds")
+    }
+
     #[tokio::test]
     async fn a_paired_device_can_only_access_its_own_profile_sync() {
         let pool = SqlitePoolOptions::new()
@@ -84,8 +131,10 @@ mod sync_api_contract_tests {
         connect_and_migrate(&pool).await.expect("migrations apply");
         sqlx::query(
             "INSERT INTO profiles (profile_id, grade, created_at, last_activity_at) VALUES \
-             ('profile-a', 4, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'), \
-             ('profile-b', 5, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+             ('profile-a', 4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+             strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), \
+             ('profile-b', 5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+             strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
         )
         .execute(&pool)
         .await
@@ -94,8 +143,8 @@ mod sync_api_contract_tests {
         sqlx::query(
             "INSERT INTO devices \
              (device_id, profile_id, created_at, last_seen_at, auth_token_hash) \
-             VALUES ('device-a', 'profile-a', '2026-01-01T00:00:00Z', \
-             '2026-01-01T00:00:00Z', ?)",
+             VALUES ('device-a', 'profile-a', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+             strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?)",
         )
         .bind(token_hash)
         .execute(&pool)
@@ -144,7 +193,45 @@ mod sync_api_contract_tests {
     }
 
     #[tokio::test]
+    #[cfg(not(feature = "sync-legal-approved"))]
     async fn sync_api_is_not_mounted_on_the_production_application() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("temporary SQLite database");
+        connect_and_migrate(&pool).await.expect("migrations apply");
+
+        let app = super::app(pool);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/profiles/profile-a/sync")
+                    .body(Body::empty())
+                    .expect("valid request"),
+            )
+            .await
+            .expect("application responds");
+
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+
+        let erasure = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/v1/profiles/profile-a/history")
+                    .body(Body::empty())
+                    .expect("valid request"),
+            )
+            .await
+            .expect("application responds");
+        assert_eq!(erasure.status(), axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "sync-legal-approved")]
+    async fn sync_api_is_mounted_only_with_the_legal_approval_feature() {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
@@ -162,7 +249,7 @@ mod sync_api_contract_tests {
             .await
             .expect("application responds");
 
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
@@ -175,7 +262,8 @@ mod sync_api_contract_tests {
         connect_and_migrate(&pool).await.expect("migrations apply");
         sqlx::query(
             "INSERT INTO profiles (profile_id, grade, created_at, last_activity_at) \
-             VALUES ('profile-a', 4, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+             VALUES ('profile-a', 4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+             strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
         )
         .execute(&pool)
         .await
@@ -183,8 +271,8 @@ mod sync_api_contract_tests {
         sqlx::query(
             "INSERT INTO devices \
              (device_id, profile_id, created_at, last_seen_at, auth_token_hash) \
-             VALUES ('device-a', 'profile-a', '2026-01-01T00:00:00Z', \
-             '2026-01-01T00:00:00Z', ?)",
+             VALUES ('device-a', 'profile-a', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+             strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?)",
         )
         .bind(sync_api::hash_device_token("device-a-token"))
         .execute(&pool)
@@ -267,7 +355,8 @@ mod sync_api_contract_tests {
         connect_and_migrate(&pool).await.expect("migrations apply");
         sqlx::query(
             "INSERT INTO profiles (profile_id, grade, created_at, last_activity_at) \
-             VALUES ('profile-a', 3, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+             VALUES ('profile-a', 3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+             strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
         )
         .execute(&pool)
         .await
@@ -277,8 +366,10 @@ mod sync_api_contract_tests {
         sqlx::query(
             "INSERT INTO devices \
              (device_id, profile_id, created_at, last_seen_at, auth_token_hash) VALUES \
-             ('device-a', 'profile-a', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', ?), \
-             ('device-b', 'profile-a', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', ?)",
+             ('device-a', 'profile-a', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+              strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?), \
+             ('device-b', 'profile-a', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+              strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?)",
         )
         .bind(token_a)
         .bind(token_b)
@@ -378,5 +469,217 @@ mod sync_api_contract_tests {
         );
         assert_eq!(snapshot["history"][1]["entry_id"], "entry-b");
         assert_eq!(snapshot["history"][1]["expression"], "7 − 4");
+    }
+
+    #[tokio::test]
+    async fn guardian_history_erasure_keeps_the_profile_and_paired_device() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("temporary SQLite database");
+        connect_and_migrate(&pool).await.expect("migrations apply");
+        let token = "guardian-device-token";
+        create_paired_profile(&pool, token, false).await;
+        let erased_entry_recorded_at: String =
+            sqlx::query_scalar("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 second')")
+                .fetch_one(&pool)
+                .await
+                .expect("recorded timestamp is available");
+        sqlx::query(
+            "INSERT INTO history_entries \
+             (entry_id, profile_id, expression, result, recorded_at, topic_tag, expires_at) \
+             VALUES ('entry-a', 'profile-a', '2 + 3', '5', ?, 'addition', \
+             strftime('%Y-%m-%dT%H:%M:%fZ', ?, '+90 days'))",
+        )
+        .bind(&erased_entry_recorded_at)
+        .bind(&erased_entry_recorded_at)
+        .execute(&pool)
+        .await
+        .expect("history is persisted");
+        let app = sync_api::routes()
+            .with_state(pool.clone())
+            .merge(pairing::router(
+                pool.clone(),
+                pairing::PairingConfig::new(vec![b'p'; 32]).expect("pairing config is valid"),
+            ));
+
+        let unauthenticated = request_history_erase(app.clone(), "profile-a", None).await;
+        assert_eq!(
+            unauthenticated.status(),
+            axum::http::StatusCode::UNAUTHORIZED
+        );
+
+        let erased = request_history_erase(app.clone(), "profile-a", Some(token)).await;
+        assert_eq!(erased.status(), axum::http::StatusCode::NO_CONTENT);
+
+        let snapshot = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/profiles/profile-a/sync")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .expect("valid snapshot request"),
+            )
+            .await
+            .expect("sync endpoint responds");
+        assert_eq!(snapshot.status(), axum::http::StatusCode::OK);
+        let snapshot: serde_json::Value = serde_json::from_slice(
+            &snapshot
+                .into_body()
+                .collect()
+                .await
+                .expect("snapshot body")
+                .to_bytes(),
+        )
+        .expect("snapshot is JSON");
+        assert_eq!(snapshot["profile_id"], "profile-a");
+        assert_eq!(snapshot["history"], serde_json::json!([]));
+
+        let pairing = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/pairing-codes")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .expect("valid pairing-code request"),
+            )
+            .await
+            .expect("pairing endpoint responds");
+        assert_eq!(pairing.status(), axum::http::StatusCode::CREATED);
+
+        let replayed_entry = submit_sync(
+            app.clone(),
+            "profile-a",
+            token,
+            serde_json::json!({
+                "history": [{
+                    "entry_id": "entry-a",
+                    "expression": "2 + 3",
+                    "result": "5",
+                    "recorded_at": erased_entry_recorded_at,
+                    "topic_tag": "addition"
+                }]
+            }),
+        )
+        .await;
+        assert_eq!(
+            replayed_entry.status(),
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY
+        );
+
+        let recorded_at: String =
+            sqlx::query_scalar("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')")
+                .fetch_one(&pool)
+                .await
+                .expect("current timestamp is available");
+        let next_entry = submit_sync(
+            app.clone(),
+            "profile-a",
+            token,
+            serde_json::json!({
+                "history": [{
+                    "entry_id": "entry-b",
+                    "expression": "4 + 1",
+                    "result": "5",
+                    "recorded_at": recorded_at,
+                    "topic_tag": "addition"
+                }]
+            }),
+        )
+        .await;
+        assert_eq!(next_entry.status(), axum::http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn empty_profiles_and_pairing_metadata_expire_after_inactivity() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("temporary SQLite database");
+        connect_and_migrate(&pool).await.expect("migrations apply");
+        let token = "inactive-device-token";
+        create_paired_profile(&pool, token, true).await;
+        sqlx::query(
+            "INSERT INTO pairing_codes \
+             (pairing_id, profile_id, code_hash, created_at, expires_at) \
+             VALUES ('pair-a', 'profile-a', 'expired-code-hash', \
+             strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-91 days'), \
+             strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 days'))",
+        )
+        .execute(&pool)
+        .await
+        .expect("pairing metadata is persisted");
+        let app = sync_api::routes().with_state(pool);
+
+        let expired = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/profiles/profile-a/sync")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .expect("valid snapshot request"),
+            )
+            .await
+            .expect("sync endpoint responds");
+
+        assert_eq!(expired.status(), axum::http::StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn linked_device_activity_does_not_extend_history_entry_expiry() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("temporary SQLite database");
+        connect_and_migrate(&pool).await.expect("migrations apply");
+        let token = "active-device-token";
+        create_paired_profile(&pool, token, false).await;
+        sqlx::query(
+            "INSERT INTO history_entries \
+             (entry_id, profile_id, expression, result, recorded_at, topic_tag, expires_at) \
+             VALUES \
+             ('expired-entry', 'profile-a', '1 + 1', '2', \
+              strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 days', '-1 second'), \
+              'addition', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 second')), \
+             ('retained-entry', 'profile-a', '2 + 2', '4', \
+              strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-89 days'), \
+              'addition', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 day'))",
+        )
+        .execute(&pool)
+        .await
+        .expect("history entries are persisted");
+        let app = sync_api::routes().with_state(pool);
+
+        let snapshot = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/profiles/profile-a/sync")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .expect("valid snapshot request"),
+            )
+            .await
+            .expect("sync endpoint responds");
+
+        assert_eq!(snapshot.status(), axum::http::StatusCode::OK);
+        let snapshot: serde_json::Value = serde_json::from_slice(
+            &snapshot
+                .into_body()
+                .collect()
+                .await
+                .expect("snapshot body")
+                .to_bytes(),
+        )
+        .expect("snapshot is JSON");
+        let history = snapshot["history"].as_array().expect("history list");
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0]["entry_id"], "retained-entry");
+        assert_eq!(history[0]["expression"], "2 + 2");
     }
 }

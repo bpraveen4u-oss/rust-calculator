@@ -19,6 +19,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     connect_and_migrate(&pool).await?;
 
+    learning_calculator_service::spawn_retention_worker(pool.clone());
+
     let listener = tokio::net::TcpListener::bind(config.bind_addr).await?;
     tracing::info!(address = %config.bind_addr, "service listening");
     axum::serve(listener, app(pool)).await?;

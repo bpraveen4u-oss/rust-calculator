@@ -25,7 +25,8 @@ async fn pairing_database() -> sqlx::SqlitePool {
     let token_hash = format!("{:x}", sha2::Sha256::digest(OWNER_TOKEN.as_bytes()));
     sqlx::query(
         "INSERT INTO profiles (profile_id, grade, created_at, last_activity_at) \
-         VALUES ('opaque-profile', 4, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+         VALUES ('opaque-profile', 4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+                 strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
     )
     .execute(&pool)
     .await
@@ -33,8 +34,8 @@ async fn pairing_database() -> sqlx::SqlitePool {
     sqlx::query(
         "INSERT INTO devices \
          (device_id, profile_id, created_at, last_seen_at, auth_token_hash) \
-         VALUES ('owner-device', 'opaque-profile', '2026-01-01T00:00:00Z', \
-                 '2026-01-01T00:00:00Z', ?)",
+         VALUES ('owner-device', 'opaque-profile', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+                 strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?)",
     )
     .bind(token_hash)
     .execute(&pool)

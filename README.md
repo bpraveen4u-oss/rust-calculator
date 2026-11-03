@@ -114,6 +114,39 @@ compile-time production gate, not evidence of approval; it must remain disabled
 until U.S. legal/privacy review approves the parental-consent approach. The
 test-only router is not mounted by the normal server application.
 
+### Cloud history deletion and expiry
+
+The experimental sync router supports
+`DELETE /v1/profiles/{profile_id}/history`. It requires a bearer token from a
+device paired to that profile, deletes all cloud history for that profile, and
+returns `204 No Content`. It keeps the pseudonymous profile (including grade),
+paired devices, and pairing metadata so the profile can sync again. The app
+must expose this request only through guardian-protected controls. The service
+authenticates a paired device, not a guardian PIN or a separate guardian role;
+the server-side guardian authorization model remains an operational assumption.
+The server records a clear timestamp and rejects history recorded at or before
+that time, preventing ordinary retries of pre-erasure queued entries from
+reintroducing them.
+
+Each history row expires 90 days after its own UTC `recorded_at` timestamp.
+Reads omit entries at or past their expiry; cleanup physically deletes expired
+rows before sync and pairing operations and from a one-minute background
+retention task. Sync activity does not change `recorded_at` or extend an
+entry's expiry. Profile activity is recorded in `profiles.last_activity_at`
+using server UTC time when a paired device successfully authenticates a sync
+read/write or history erase, creates a pairing code, or completes a pairing.
+Requests without valid bearer authentication and local-only calculator use do
+not count. An authenticated request counts even if its payload is later rejected.
+After expired history is removed, an empty profile and its linked-device and
+pairing metadata are deleted once `last_activity_at` is 90 days old. These
+server operations do not clear or modify the app's local history; local history
+remains until the guardian clears it on that device.
+
+Retention cleanup is a live-database operation only. It does not make copies of
+the database safe to restore: do not back up learner data or enable production
+sync until legal/privacy approval and a separately verified backup/deletion
+policy covers every recovery copy.
+
 ### Tests and conventions
 
 Run:
@@ -130,5 +163,5 @@ HTTP contract tests exercise the Axum router at its public endpoint. Migration t
 The private, single-VM Azure staging template, systemd unit, and deployment,
 backup, and deletion-safety instructions are in [`deploy/azure`](deploy/azure/README.md).
 They do not deploy resources. Production learner data and cloud sync remain
-blocked on qualified U.S. legal/privacy approval and implementation of
-deletion-safe database retention.
+blocked on qualified U.S. legal/privacy approval and a verified deletion-safe
+backup/recovery policy.

@@ -6,9 +6,9 @@ keys, host encryption enabled, and a virtual network with all inbound traffic
 denied by default. There is no public IP, service ingress, deployment workflow,
 or production learner data. An operator may optionally set one approved
 private CIDR to allow SSH only from that management network; the default is to
-deny even SSH. The Rust service
-currently exposes only `GET /health/ready`; pairing and sync are not
-implemented.
+deny even SSH. The default Rust service exposes only `GET /health/ready`. Experimental pairing
+and sync routes exist in code but are not mounted by default; sync additionally
+requires the explicit legal-approval feature.
 
 ## Human-only prerequisites and approvals
 
@@ -147,19 +147,36 @@ The seven-day limit applies only to OS recovery points, not to learner data.
 If any learner data is ever present in an unintended backup, stop data
 collection, restrict access, notify the privacy/security owner, and follow the
 incident and deletion process; do not treat normal expiry as satisfying a
-guardian deletion request. Do not enable database backups until the application
-can enforce per-entry 90-day expiry and guardian cloud-history deletion across
-the live database **and every backup/recovery copy**, with independently
-verified deletion completion and a retention bound that does not extend the
-promised deletion. The current service does not implement these operations.
+guardian deletion request. The service implements per-entry 90-day expiry and
+guardian-triggered live-database history erasure, but these operations do not
+reach any database backup, snapshot, export, or recovery copy. Do not enable
+database backups until a separately approved design enforces expiry and
+guardian deletion across the live database **and every backup/recovery copy**,
+with independently verified deletion completion and a retention bound that
+does not extend the promised deletion.
+
+The live database runs retention cleanup on startup and before API operations,
+and the service purges expired data every minute while it is running. A
+successful paired-device sync read/write or history erase, pairing-code
+creation, or completed pairing updates the profile's `last_activity_at` using
+server UTC time. Requests without valid bearer authentication and local
+calculations do not count; an authenticated request counts even if its payload
+is later rejected. Expired history is never extended by profile activity. An
+empty profile, its linked devices, and pairing metadata are deleted after 90
+days without that activity. The
+service has no separate server-side guardian PIN/role; the HTTP erasure request
+is authenticated by a paired-device token and must be initiated only by the
+app's protected guardian controls. Erasure records a server-side timestamp and
+rejects later sync submissions whose history timestamp is at or before that
+clear time, preventing ordinary stale retries from restoring erased entries.
 
 ## Mandatory production gate
 
 Cloud sync and production learner data remain **disabled** until qualified
 U.S. legal/privacy review approves the parental-consent approach and the
 production owner records that approval. A guardian toggle is not presumed
-sufficient. This gate also requires implementation and verification of
-per-entry 90-day deletion, guardian history erasure that preserves only the
-permitted profile shell, and a backup/restore design that cannot resurrect
-deleted history. No deployment here is approval to launch, expose a public
-endpoint, or collect learner data.
+sufficient. This gate also requires verification of per-entry 90-day deletion
+and guardian history erasure that preserves only the permitted profile shell,
+plus a backup/restore design that cannot resurrect deleted history. No
+deployment here is approval to launch, expose a public endpoint, or collect
+learner data.
