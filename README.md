@@ -74,3 +74,11 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 ```
 HTTP contract tests exercise the Axum router at its public endpoint. Migration tests apply the actual SQLx migrations to an isolated in-memory SQLite database and verify the resulting persistence contract. Keep tests at these public seams; do not couple them to framework internals or query layout.
+
+### Azure staging
+
+The private, single-VM Azure staging template, systemd unit, and deployment,
+backup, and deletion-safety instructions are in [`deploy/azure`](deploy/azure/README.md).
+They do not deploy resources. Production learner data and cloud sync remain
+blocked on qualified U.S. legal/privacy approval and implementation of
+deletion-safe database retention.
