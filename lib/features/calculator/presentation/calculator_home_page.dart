@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/app_dependencies.dart';
+import '../../guardian/guardian_access.dart';
+import '../../guardian/presentation/guardian_controls_page.dart';
 import '../domain/expression_evaluator.dart';
 import '../domain/learning_content.dart';
 
 class CalculatorHomePage extends StatefulWidget {
-  const CalculatorHomePage({required this.localStore, super.key});
+  const CalculatorHomePage({
+    required this.localStore,
+    required this.guardianAccess,
+    super.key,
+  });
 
   final LocalStore localStore;
+  final GuardianAccess guardianAccess;
 
   @override
   State<CalculatorHomePage> createState() => _CalculatorHomePageState();
@@ -40,7 +47,23 @@ class _CalculatorHomePageState extends State<CalculatorHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Calculator')),
+      appBar: AppBar(
+        title: const Text('Calculator'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => GuardianControlsPage(
+                    guardianAccess: widget.guardianAccess,
+                  ),
+                ),
+              );
+            },
+            child: const Text('Guardian controls'),
+          ),
+        ],
+      ),
       body: FutureBuilder<void>(
         future: _storeReady,
         builder: (context, snapshot) {
