@@ -38,16 +38,69 @@ generating native runners, follow that plugin's Android activity and iOS
 Face ID usage-description setup instructions before expecting biometric unlock
 to work.
 
-## Flutter app
+## Prerequisites
 
-With Flutter installed and an iOS Simulator or Android emulator/device
-available, generate the native runner projects once if they are missing:
+### Run the Flutter app on Android
+
+Install the following:
+
+- **Flutter SDK** (stable; Flutter 3.19 or newer, with its bundled Dart SDK).
+  Add the Flutter `bin` directory to `PATH`, or call `flutter.bat` by its full
+  path.
+- **Android Studio** with the Android SDK, Android SDK Platform-Tools, Android
+  Emulator, and at least one Android SDK platform and emulator image installed.
+  Android Studio's bundled Java runtime is sufficient; a separate JDK is not
+  required.
+- **An Android emulator or device.** For a physical device, enable developer
+  options and USB debugging, and install the device's USB driver if Windows
+  requires one.
+
+After installing, open PowerShell in the repository root and check the setup:
 
 ```sh
+flutter doctor
+flutter doctor --android-licenses
+flutter devices
+```
+
+Accept the Android SDK licenses when prompted. In Android Studio's SDK Manager,
+install any SDK components `flutter doctor` reports missing. The first Android
+build downloads Gradle and Android dependencies, so it requires network access.
+
+### Optional: run the Rust service or its tests
+
+Install the **stable Rust toolchain** with `rustup` (including `cargo`). SQLite
+is used through the Rust crate and Flutter plugin dependencies; no separate
+SQLite installation is required.
+
+## Run the Flutter app
+
+The Android runner project is included in this repository. From PowerShell at
+the repository root:
+
+```powershell
+flutter pub get
+flutter devices
+flutter run -d <device-id>
+```
+
+For example, use the device ID shown by `flutter devices`, such as
+`emulator-5554`. To use the default connected emulator without selecting an ID:
+
+```powershell
+flutter run
+```
+
+If native runner folders are missing in a fresh checkout, generate them once:
+
+```powershell
 flutter create --platforms=android,ios .
 flutter pub get
 flutter run
 ```
+
+For iOS, use macOS with Xcode and an iOS Simulator or device; iOS is not
+available to build from Windows.
 
 The standard app keeps cloud sync disabled. A local debug build may opt into
 the development client with
@@ -78,7 +131,8 @@ This crate is the local Rust service foundation for the Learning Calculator. It 
 
 ### Run locally
 
-Install a current stable Rust toolchain, then from the repository root in PowerShell:
+With the optional Rust toolchain installed, start the service from the repository
+root in PowerShell:
 
 ```powershell
 $env:DATABASE_URL = "sqlite://service.db"
