@@ -430,7 +430,7 @@ mod sync_api_contract_tests {
                     "entry_id": "entry-b",
                     "expression": "9 - 4",
                     "result": "5",
-                    "recorded_at": recorded_at,
+                    "recorded_at": recorded_at.clone(),
                     "topic_tag": "subtraction"
                 }]
             }),
@@ -458,21 +458,29 @@ mod sync_api_contract_tests {
                 .to_bytes(),
         )
         .expect("snapshot is JSON");
-        assert_eq!(snapshot["grade"], 4);
-        assert_eq!(snapshot.as_object().expect("snapshot object").len(), 3);
         assert_eq!(
-            snapshot["history"].as_array().expect("history list").len(),
-            2
+            snapshot,
+            serde_json::json!({
+                "profile_id": "profile-a",
+                "grade": 4,
+                "history": [
+                    {
+                        "entry_id": "entry-a",
+                        "expression": "2 × 3",
+                        "result": "6",
+                        "recorded_at": recorded_at,
+                        "topic_tag": "multiplication"
+                    },
+                    {
+                        "entry_id": "entry-b",
+                        "expression": "7 − 4",
+                        "result": "3",
+                        "recorded_at": recorded_at,
+                        "topic_tag": "subtraction"
+                    }
+                ]
+            })
         );
-        assert_eq!(
-            snapshot["history"][1]
-                .as_object()
-                .expect("entry object")
-                .len(),
-            5
-        );
-        assert_eq!(snapshot["history"][1]["entry_id"], "entry-b");
-        assert_eq!(snapshot["history"][1]["expression"], "7 − 4");
     }
 
     #[tokio::test]
