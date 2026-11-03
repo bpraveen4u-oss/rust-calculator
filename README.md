@@ -29,7 +29,7 @@ startup and user-visible calculator entry can be tested without network access.
 
 ## Rust service foundation
 
-This crate is the local Rust service foundation for the Learning Calculator. It uses Axum/Tokio, SQLx, and SQLite. **It currently exposes only `GET /health/ready`; pairing and learner synchronization are not implemented or enabled. Do not send real learner data to this service.**
+This crate is the local Rust service foundation for the Learning Calculator. It uses Axum/Tokio, SQLx, and SQLite. The production `main` router exposes only `GET /health/ready`; learner synchronization is not implemented, and pairing is not mounted by default. **Do not send real learner data to this service.**
 
 ### Run locally
 
@@ -50,11 +50,30 @@ Invoke-RestMethod http://127.0.0.1:3000/health/ready
 
 The endpoint returns `{"status":"ready"}` when SQLite can answer a query, or HTTP `503` when the database is unavailable.
 
-Configuration failures are reported explicitly (`DATABASE_URL` is required and `BIND_ADDR` must be a socket address). Database startup and migration errors are returned rather than silently ignored. No application secrets are needed or included.
+Configuration failures are reported explicitly (`DATABASE_URL` is required and `BIND_ADDR` must be a socket address). Database startup and migration errors are returned rather than silently ignored. The default service requires no application secrets.
+
+### Experimental pairing API
+
+The router builder `app_with_pairing` adds two experimental endpoints for isolated
+contract testing or future approved integration:
+
+- `POST /api/pairing-codes` requires an existing device bearer token and returns
+  a manually entered, single-use code that expires after ten minutes.
+- `POST /api/pair` accepts a code and returns a new opaque device ID and bearer
+  token. Invalid, expired, and already-used codes share one response. Pairing
+  attempts are limited to five per source IP per ten-minute window.
+
+Codes are generated from 50 bits of OS randomness and stored as HMAC-SHA-256
+hashes. The HMAC key must be at least 32 bytes and is supplied only when
+explicitly building the experimental router. The default `main` continues to
+use `app`, so neither pairing nor learner sync is exposed in production. Do not
+mount `app_with_pairing` in a deployment until legal/privacy review approves the
+parental-consent approach. No child email, QR flow, learner history, or sync
+endpoint is included.
 
 ### Persistence
 
-`migrations/0001_initial_schema.sql` defines pseudonymous profiles, device references, hashed pairing-code records, and minimal history fields (expression, result, timestamp, and topic tag). It intentionally contains no learner name, email, contacts, precise location, or freeform notes. The migration is applied at startup; future API work must remain blocked until the parental-consent approach has passed legal/privacy review.
+`migrations/0001_initial_schema.sql` defines pseudonymous profiles, device references, hashed pairing-code records, and minimal history fields (expression, result, timestamp, and topic tag). `0002_device_auth_and_pairing_limits.sql` adds device-token hashes and short-lived source-IP attempt buckets. The schema intentionally contains no learner name, email, contacts, precise location, or freeform notes. Migrations are applied at startup; production pairing and sync must remain blocked until the parental-consent approach has passed legal/privacy review.
 
 ### Tests and conventions
 
