@@ -108,6 +108,81 @@ void main() {
       expect(find.text('Worked steps'), findsNothing);
     },
   );
+
+  testWidgets(
+    'saves calculations in the selected learner history and keeps profiles separate',
+    (tester) async {
+      final localStore = _InMemoryLocalStore();
+      await tester.pumpWidget(
+        LearningCalculatorApp(
+          localStore: localStore,
+          syncClient: _FakeSyncClient(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('learner-grade')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Grade 4').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('expression-input')),
+        '3/4 + 1/4',
+      );
+      expect(
+        tester.widget<SelectableText>(
+          find.byKey(const Key('calculation-result')),
+        ).data,
+        '1',
+      );
+
+      tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('show-history')));
+      await tester.pumpAndSettle();
+      expect(find.text('3/4 + 1/4 = 1'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('close-history')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('add-learner')));
+      await tester.pumpAndSettle();
+      final profiles = await localStore.getProfiles();
+      expect(profiles, hasLength(2));
+      expect(profiles.map((profile) => profile.grade).toList(), [4, 3]);
+
+      await tester.tap(find.byKey(const Key('show-history')));
+      await tester.pumpAndSettle();
+      expect(find.text('No calculations yet'), findsOneWidget);
+    },
+  );
+
+  testWidgets('calculator keys build a calculation with labeled controls', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    addTearDown(semantics.dispose);
+
+    await tester.pumpWidget(
+      LearningCalculatorApp(
+        localStore: _InMemoryLocalStore(),
+        syncClient: _FakeSyncClient(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('keypad-8')));
+    await tester.tap(find.byKey(const Key('keypad-8')));
+    await tester.tap(find.byKey(const Key('keypad-multiply')));
+    await tester.tap(find.byKey(const Key('keypad-3')));
+
+    expect(
+      tester.widget<SelectableText>(
+        find.byKey(const Key('calculation-result')),
+      ).data,
+      '24',
+    );
+    expect(find.bySemanticsLabel('Multiply'), findsOneWidget);
+  });
 }
 
 class _InMemoryLocalStore implements LocalStore {
