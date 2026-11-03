@@ -71,6 +71,7 @@ void main() {
         LearningCalculatorApp(
           localStore: _InMemoryLocalStore(),
           syncClient: _FakeSyncClient(),
+          guardianAccess: _FakeGuardianAccess(),
         ),
       );
       await tester.pumpAndSettle();
@@ -119,6 +120,7 @@ void main() {
         LearningCalculatorApp(
           localStore: localStore,
           syncClient: _FakeSyncClient(),
+          guardianAccess: _FakeGuardianAccess(),
         ),
       );
       await tester.pumpAndSettle();
@@ -168,6 +170,7 @@ void main() {
       LearningCalculatorApp(
         localStore: _InMemoryLocalStore(),
         syncClient: _FakeSyncClient(),
+        guardianAccess: _FakeGuardianAccess(),
       ),
     );
     await tester.pumpAndSettle();
