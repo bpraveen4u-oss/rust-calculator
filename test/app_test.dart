@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../lib/app/app_dependencies.dart';
 import '../lib/app/learning_calculator_app.dart';
+import '../lib/features/guardian/guardian_access.dart';
 
 void main() {
   testWidgets(
@@ -15,6 +16,7 @@ void main() {
         LearningCalculatorApp(
           localStore: localStore,
           syncClient: syncClient,
+          guardianAccess: _FakeGuardianAccess(),
         ),
       );
       await tester.pumpAndSettle();
@@ -268,4 +270,21 @@ class _FakeSyncClient implements SyncClient {
   Future<void> syncPendingChanges() async {
     syncRequests++;
   }
+}
+
+class _FakeGuardianAccess implements GuardianAccess {
+  @override
+  Future<bool> hasPin() async => false;
+
+  @override
+  Future<void> setPin(String pin) async {}
+
+  @override
+  Future<bool> verifyPin(String pin) async => false;
+
+  @override
+  Future<bool> canUseBiometrics() async => false;
+
+  @override
+  Future<bool> authenticateWithBiometrics() async => false;
 }
