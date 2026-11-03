@@ -301,10 +301,10 @@ mod sync_api_contract_tests {
                     "grade": 4,
                     "history": [{
                         "entry_id": "entry-a",
-                        "expression": "2 + 3",
-                        "result": "5",
+                        "expression": "2 × 3",
+                        "result": "6",
                         "recorded_at": recorded_at.clone(),
-                        "topic_tag": "addition"
+                        "topic_tag": "multiplication"
                     }]
                 })
             ),
@@ -315,7 +315,7 @@ mod sync_api_contract_tests {
                 serde_json::json!({
                     "history": [{
                         "entry_id": "entry-b",
-                        "expression": "7 - 4",
+                        "expression": "7 − 4",
                         "result": "3",
                         "recorded_at": recorded_at.clone(),
                         "topic_tag": "subtraction"
@@ -377,6 +377,6 @@ mod sync_api_contract_tests {
             5
         );
         assert_eq!(snapshot["history"][1]["entry_id"], "entry-b");
-        assert_eq!(snapshot["history"][1]["expression"], "7 - 4");
+        assert_eq!(snapshot["history"][1]["expression"], "7 − 4");
     }
 }

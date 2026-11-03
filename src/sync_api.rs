@@ -187,10 +187,13 @@ fn is_opaque_id(value: &str) -> bool {
 fn is_math_expression(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 500
-        && value.bytes().any(|byte| byte.is_ascii_digit())
-        && value.bytes().all(|byte| {
-            byte.is_ascii_digit()
-                || matches!(byte, b'+' | b'-' | b'*' | b'/' | b'(' | b')' | b'.' | b' ')
+        && value.chars().any(|character| character.is_ascii_digit())
+        && value.chars().all(|character| {
+            character.is_ascii_digit()
+                || matches!(
+                    character,
+                    '+' | '-' | '*' | '/' | '(' | ')' | '.' | ' ' | '×' | '÷' | '−'
+                )
         })
 }
 
