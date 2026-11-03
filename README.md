@@ -13,6 +13,18 @@ fractions. Results are simplified exact fractions; a decimal equivalent is
 available separately. Incomplete and invalid expressions are reported without
 showing a misleading answer.
 
+Guardian controls are in a separate PIN-protected area. A platform biometric
+unlock is offered when the device supports it. Pairing is an opt-in experiment
+only; no pairing or cloud sync is available until legal/privacy review approves
+the parental-consent approach. The acknowledgement in guardian controls is not
+consent and does not enable sync.
+
+The PIN is kept in platform secure storage. Biometric access uses the
+`local_auth` plugin and is hidden when no supported biometric is enrolled. When
+generating native runners, follow that plugin's Android activity and iOS
+Face ID usage-description setup instructions before expecting biometric unlock
+to work.
+
 ## Flutter app
 
 With Flutter installed and an iOS Simulator or Android emulator/device
