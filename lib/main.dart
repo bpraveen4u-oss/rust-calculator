@@ -6,10 +6,11 @@ import 'app/sqlite_local_store.dart';
 import 'features/guardian/guardian_access.dart';
 
 void main() {
+  final localStore = SqliteLocalStore();
   runApp(
     LearningCalculatorApp(
-      localStore: SqliteLocalStore(),
-      syncClient: DisabledSyncClient(),
+      localStore: localStore,
+      syncClient: createDefaultSyncClient(localStore),
       guardianAccess: SecureGuardianAccess(),
     ),
   );

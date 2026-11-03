@@ -150,6 +150,7 @@ async fn guardian_can_create_a_code_and_pair_a_second_device_once() {
     let paired = response_json(paired).await;
     assert!(paired["device_id"].as_str().is_some());
     assert!(paired["device_token"].as_str().is_some());
+    assert_eq!(paired["profile_id"], "opaque-profile");
 
     let reused = post(
         pool,

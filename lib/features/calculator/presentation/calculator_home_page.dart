@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/app_dependencies.dart';
@@ -9,11 +11,13 @@ import '../domain/learning_content.dart';
 class CalculatorHomePage extends StatefulWidget {
   const CalculatorHomePage({
     required this.localStore,
+    required this.syncClient,
     required this.guardianAccess,
     super.key,
   });
 
   final LocalStore localStore;
+  final SyncClient syncClient;
   final GuardianAccess guardianAccess;
 
   @override
@@ -22,6 +26,7 @@ class CalculatorHomePage extends StatefulWidget {
 
 class _CalculatorHomePageState extends State<CalculatorHomePage> {
   late final Future<void> _storeReady;
+  StreamSubscription<SyncStatus>? _syncStatusSubscription;
   final _expressionController = TextEditingController();
   final _evaluator = const ExpressionEvaluator();
   final _learningContent = const LearningContentGenerator();
@@ -38,6 +43,11 @@ class _CalculatorHomePageState extends State<CalculatorHomePage> {
   @override
   void initState() {
     super.initState();
+    _syncStatusSubscription = widget.syncClient.statusChanges.listen((status) {
+      if (status.phase == SyncPhase.synced) {
+        unawaited(_refreshActiveProfile());
+      }
+    });
     _storeReady = _loadLearners();
   }
 
@@ -49,11 +59,14 @@ class _CalculatorHomePageState extends State<CalculatorHomePage> {
     }
     _activeProfile = _profiles.first;
     _history = await widget.localStore.getHistory(_activeProfile!.id);
+    await widget.syncClient.initialize();
   }
 
   @override
   void dispose() {
     _expressionController.dispose();
+    unawaited(_syncStatusSubscription?.cancel());
+    unawaited(widget.syncClient.dispose());
     super.dispose();
   }
 
@@ -72,6 +85,8 @@ class _CalculatorHomePageState extends State<CalculatorHomePage> {
                 MaterialPageRoute<void>(
                   builder: (_) => GuardianControlsPage(
                     guardianAccess: widget.guardianAccess,
+                    syncClient: widget.syncClient,
+                    localProfileId: _activeProfile!.id,
                   ),
                 ),
               );
@@ -122,6 +137,8 @@ class _CalculatorHomePageState extends State<CalculatorHomePage> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 12),
+                    _syncStatus(),
                     const SizedBox(height: 12),
                     InputDecorator(
                       decoration: const InputDecoration(
@@ -473,6 +490,7 @@ class _CalculatorHomePageState extends State<CalculatorHomePage> {
       _hint = null;
       _workedExplanation = null;
     });
+    _requestSync();
   }
 
   Future<void> _selectLearner(String? profileId) async {
@@ -540,6 +558,51 @@ class _CalculatorHomePageState extends State<CalculatorHomePage> {
       _history = [entry, ..._history];
       _lastSavedExpression = expression;
     });
+    _requestSync();
+  }
+
+  void _requestSync() {
+    unawaited(widget.syncClient.syncPendingChanges().catchError((Object _) {}));
+  }
+
+  Widget _syncStatus() {
+    return StreamBuilder<SyncStatus>(
+      stream: widget.syncClient.statusChanges,
+      initialData: widget.syncClient.status,
+      builder: (context, snapshot) {
+        final status = snapshot.data ?? widget.syncClient.status;
+        final localizations = MaterialLocalizations.of(context);
+        final lastSync = status.lastSuccessfulSyncAt?.toLocal();
+        return Semantics(
+          liveRegion: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                status.label,
+                key: const Key('sync-status'),
+              ),
+              if (status.pendingChanges > 0)
+                Text(
+                  '${status.pendingChanges} '
+                  'change${status.pendingChanges == 1 ? '' : 's'} '
+                  'waiting to sync',
+                  key: const Key('sync-pending-count'),
+                ),
+              if (lastSync != null)
+                Text(
+                  'Last synced: '
+                  '${localizations.formatMediumDate(lastSync)} '
+                  '${localizations.formatTimeOfDay(
+                    TimeOfDay.fromDateTime(lastSync),
+                  )}',
+                  key: const Key('sync-last-success'),
+                ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   String _topicFor(String expression) {
@@ -563,6 +626,9 @@ class _CalculatorHomePageState extends State<CalculatorHomePage> {
 
   Future<void> _showHistory() async {
     final profile = _activeProfile!;
+    final history = await widget.localStore.getHistory(profile.id);
+    if (!mounted || _activeProfile?.id != profile.id) return;
+    setState(() => _history = history);
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -632,6 +698,20 @@ class _CalculatorHomePageState extends State<CalculatorHomePage> {
         ),
       ),
     );
+  }
+
+  Future<void> _refreshActiveProfile() async {
+    final profileId = _activeProfile?.id;
+    if (profileId == null) return;
+    final profile = await widget.localStore.getProfile(profileId);
+    if (!mounted || profile == null || _activeProfile?.id != profileId) return;
+    setState(() {
+      _activeProfile = profile;
+      _profiles = [
+        for (final existing in _profiles)
+          if (existing.id == profileId) profile else existing,
+      ];
+    });
   }
 
   String _profileLabel(LearnerProfile profile) =>

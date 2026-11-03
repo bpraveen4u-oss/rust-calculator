@@ -45,7 +45,9 @@ void main() {
 
       expect(find.text('Guardian controls'), findsWidgets);
       expect(
-        find.text('Cloud sync is disabled pending legal/privacy review.'),
+        find.textContaining(
+          'Production cloud sync remains disabled pending legal/privacy review.',
+        ),
         findsOneWidget,
       );
       expect(find.textContaining('no recovery key'), findsOneWidget);
@@ -99,7 +101,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('guardian-unlock-pin')), findsOneWidget);
     expect(
-      find.text('Cloud sync is disabled pending legal/privacy review.'),
+      find.textContaining(
+        'Production cloud sync remains disabled pending legal/privacy review.',
+      ),
       findsNothing,
     );
 
@@ -118,7 +122,9 @@ void main() {
     await tester.tap(find.byKey(const Key('guardian-unlock')));
     await tester.pumpAndSettle();
     expect(
-      find.text('Cloud sync is disabled pending legal/privacy review.'),
+      find.textContaining(
+        'Production cloud sync remains disabled pending legal/privacy review.',
+      ),
       findsOneWidget,
     );
   });
@@ -146,7 +152,9 @@ void main() {
 
     expect(guardianAccess.biometricAttempts, 1);
     expect(
-      find.text('Cloud sync is disabled pending legal/privacy review.'),
+      find.textContaining(
+        'Production cloud sync remains disabled pending legal/privacy review.',
+      ),
       findsOneWidget,
     );
   });
@@ -219,13 +227,70 @@ class _InMemoryLocalStore implements LocalStore {
 
   @override
   Future<void> clearHistory(String profileId) async {}
+
+  @override
+  Future<void> linkSyncProfile({
+    required String localProfileId,
+    required String remoteProfileId,
+  }) async {}
+
+  @override
+  Future<List<SyncProfileState>> getSyncProfiles() async => [];
+
+  @override
+  Future<PendingSyncChanges?> getPendingSyncChanges(String profileId) async =>
+      null;
+
+  @override
+  Future<int> getPendingSyncCount() async => 0;
+
+  @override
+  Future<void> mergeRemoteProfileGrade(
+    String profileId, {
+    required int grade,
+  }) async {}
+
+  @override
+  Future<void> mergeRemoteHistory(
+    String profileId,
+    List<CalculationHistoryEntry> entries,
+  ) async {}
+
+  @override
+  Future<void> markSyncSucceeded({
+    required String profileId,
+    required DateTime syncedAt,
+    required int? syncedGrade,
+    required List<String> syncedHistoryIds,
+  }) async {}
 }
 
 class _FakeSyncClient implements SyncClient {
   int syncRequests = 0;
 
   @override
+  SyncStatus get status => const SyncStatus(phase: SyncPhase.disabled);
+
+  @override
+  Stream<SyncStatus> get statusChanges => const Stream<SyncStatus>.empty();
+
+  @override
+  bool get pairingAvailable => false;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
   Future<void> syncPendingChanges() async {
     syncRequests++;
   }
+
+  @override
+  Future<void> pairDevice(String localProfileId, String code) async {}
+
+  @override
+  Future<String> createPairingCode(String localProfileId) async => '';
+
+  @override
+  Future<void> dispose() async {}
 }

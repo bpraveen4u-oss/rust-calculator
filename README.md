@@ -23,6 +23,15 @@ only; no pairing or cloud sync is available until legal/privacy review approves
 the parental-consent approach. The acknowledgement in guardian controls is not
 consent and does not enable sync.
 
+When explicitly enabled in a local debug build, guardians can manually enter a
+single-use pairing code or create one for an already-linked device. Device
+tokens are kept in iOS Keychain or Android Keystore through
+`flutter_secure_storage`; pending profile/history changes remain in the local
+SQLite outbox while offline and retry after connectivity returns. The server
+merges history by entry ID and the app keeps both local and remote entries.
+The calculator shows sync state, queued changes, and the last successful sync.
+Production sync remains disabled by default.
+
 The PIN is kept in platform secure storage. Biometric access uses the
 `local_auth` plugin and is hidden when no supported biometric is enrolled. When
 generating native runners, follow that plugin's Android activity and iOS
@@ -40,6 +49,15 @@ flutter pub get
 flutter run
 ```
 
+The standard app keeps cloud sync disabled. A local debug build may opt into
+the development client with
+`--dart-define=LEARNING_CALCULATOR_SYNC=development`; its default endpoint is
+loopback, and any override is restricted to the local emulator/test host.
+Release builds ignore this option. Use only synthetic test data and an isolated
+development service. The normal Rust server does not expose pairing/sync routes;
+the legal/privacy approval feature is not a development shortcut and must not
+be enabled to exercise the Flutter fake-API tests.
+
 ## Test and analyze
 
 ```sh
@@ -47,9 +65,12 @@ flutter test
 flutter analyze
 ```
 
-Widget tests inject an in-memory local store and a fake sync client. SQLite
-store-contract tests cover in-memory isolation and reopen durability using a
-local database that the tests remove afterward.
+Widget tests inject an in-memory local store and fake sync client. Sync-flow
+tests use an in-memory SQLite store, controllable connectivity, and a fake API
+to cover manual pairing, offline queueing/retry, duplicate-safe submission,
+multi-device history merge, and visible status. SQLite store-contract tests
+cover in-memory isolation and reopen durability using a local database that
+the tests remove afterward.
 
 ## Rust service foundation
 
@@ -84,8 +105,9 @@ contract testing or future approved integration:
 - `POST /api/pairing-codes` requires an existing device bearer token and returns
   a manually entered, single-use code that expires after ten minutes.
 - `POST /api/pair` accepts a code and returns a new opaque device ID and bearer
-  token. Invalid, expired, and already-used codes share one response. Pairing
-  attempts are limited to five per source IP per ten-minute window.
+  token plus the associated opaque profile ID needed by the client to link its
+  local profile. Invalid, expired, and already-used codes share one response.
+  Pairing attempts are limited to five per source IP per ten-minute window.
 
 Codes are generated from 50 bits of OS randomness and stored as HMAC-SHA-256
 hashes. The HMAC key must be at least 32 bytes and is supplied only when

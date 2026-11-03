@@ -28,6 +28,30 @@ class CalculationHistoryEntry {
   final String topic;
 }
 
+class SyncProfileState {
+  const SyncProfileState({
+    required this.profile,
+    required this.remoteProfileId,
+    required this.lastSuccessfulSyncAt,
+  });
+
+  final LearnerProfile profile;
+  final String remoteProfileId;
+  final DateTime? lastSuccessfulSyncAt;
+}
+
+class PendingSyncChanges {
+  const PendingSyncChanges({
+    required this.profile,
+    required this.gradeChanged,
+    required this.history,
+  });
+
+  final LearnerProfile profile;
+  final bool gradeChanged;
+  final List<CalculationHistoryEntry> history;
+}
+
 abstract interface class LocalStore {
   Future<void> initialize();
 
@@ -53,4 +77,32 @@ abstract interface class LocalStore {
   Future<List<CalculationHistoryEntry>> getHistory(String profileId);
 
   Future<void> clearHistory(String profileId);
+
+  Future<void> linkSyncProfile({
+    required String localProfileId,
+    required String remoteProfileId,
+  });
+
+  Future<List<SyncProfileState>> getSyncProfiles();
+
+  Future<PendingSyncChanges?> getPendingSyncChanges(String profileId);
+
+  Future<int> getPendingSyncCount();
+
+  Future<void> mergeRemoteProfileGrade(
+    String profileId, {
+    required int grade,
+  });
+
+  Future<void> mergeRemoteHistory(
+    String profileId,
+    List<CalculationHistoryEntry> entries,
+  );
+
+  Future<void> markSyncSucceeded({
+    required String profileId,
+    required DateTime syncedAt,
+    required int? syncedGrade,
+    required List<String> syncedHistoryIds,
+  });
 }

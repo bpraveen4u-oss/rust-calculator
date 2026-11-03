@@ -4,9 +4,16 @@ import '../../../app/app_dependencies.dart';
 import '../guardian_access.dart';
 
 class GuardianControlsPage extends StatefulWidget {
-  const GuardianControlsPage({required this.guardianAccess, super.key});
+  const GuardianControlsPage({
+    required this.guardianAccess,
+    required this.syncClient,
+    required this.localProfileId,
+    super.key,
+  });
 
   final GuardianAccess guardianAccess;
+  final SyncClient syncClient;
+  final String localProfileId;
 
   @override
   State<GuardianControlsPage> createState() => _GuardianControlsPageState();
@@ -17,7 +24,9 @@ class _GuardianControlsPageState extends State<GuardianControlsPage> {
   late final Future<bool> _canUseBiometrics;
   final _pinController = TextEditingController();
   final _confirmPinController = TextEditingController();
+  final _pairingCodeController = TextEditingController();
   String? _message;
+  String? _createdCode;
   bool _isUnlocked = false;
   bool _pairingRequested = false;
   bool _isBusy = false;
@@ -33,6 +42,7 @@ class _GuardianControlsPageState extends State<GuardianControlsPage> {
   void dispose() {
     _pinController.dispose();
     _confirmPinController.dispose();
+    _pairingCodeController.dispose();
     super.dispose();
   }
 
@@ -198,7 +208,9 @@ class _GuardianControlsPageState extends State<GuardianControlsPage> {
             ),
             const SizedBox(height: 16),
             const Text(
-              'Cloud sync is disabled pending legal/privacy review.',
+              'Production cloud sync remains disabled pending legal/privacy '
+              'review. The explicitly enabled local test configuration must '
+              'never be used with real learner data.',
               key: Key('guardian-sync-disabled'),
             ),
             const SizedBox(height: 8),
@@ -222,6 +234,38 @@ class _GuardianControlsPageState extends State<GuardianControlsPage> {
               onPressed: _pairingRequested ? _requestPairing : null,
               child: const Text('Continue to device pairing'),
             ),
+            if (_pairingRequested && widget.syncClient.pairingAvailable) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'Enter the one-time code shown in guardian controls on an '
+                'already paired device. It expires after about ten minutes.',
+              ),
+              TextField(
+                key: const Key('guardian-pairing-code'),
+                controller: _pairingCodeController,
+                textCapitalization: TextCapitalization.characters,
+                maxLength: 16,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Pairing code',
+                ),
+              ),
+              FilledButton(
+                key: const Key('guardian-submit-pairing-code'),
+                onPressed: _isBusy ? null : _submitPairingCode,
+                child: const Text('Pair this device'),
+              ),
+              OutlinedButton(
+                key: const Key('guardian-create-pairing-code'),
+                onPressed: _isBusy ? null : _createPairingCode,
+                child: const Text('Create a code for another device'),
+              ),
+              if (_createdCode case final code?)
+                SelectableText(
+                  code,
+                  key: const Key('guardian-created-pairing-code'),
+                ),
+            ],
             if (_message != null) ...[
               const SizedBox(height: 12),
               Text(_message!, key: const Key('guardian-message')),
@@ -309,7 +353,66 @@ class _GuardianControlsPageState extends State<GuardianControlsPage> {
 
   void _requestPairing() {
     setState(() {
-      _message = 'Pairing is not available in this experiment.';
+      _message = widget.syncClient.pairingAvailable
+          ? null
+          : 'Pairing is not available in this experiment.';
+      _createdCode = null;
     });
+  }
+
+  Future<void> _submitPairingCode() async {
+    setState(() {
+      _isBusy = true;
+      _message = null;
+    });
+    try {
+      await widget.syncClient.pairDevice(
+        widget.localProfileId,
+        _pairingCodeController.text,
+      );
+      if (mounted) {
+        setState(() {
+          _pairingCodeController.clear();
+          _message = 'Device paired. Sync will continue when connected.';
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _message = 'Could not pair this device. Check the code and '
+              'connection, then try again.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isBusy = false);
+    }
+  }
+
+  Future<void> _createPairingCode() async {
+    setState(() {
+      _isBusy = true;
+      _message = null;
+      _createdCode = null;
+    });
+    try {
+      final code = await widget.syncClient.createPairingCode(
+        widget.localProfileId,
+      );
+      if (mounted) {
+        setState(() {
+          _createdCode = code;
+          _message = 'Enter this code on the other device before it expires.';
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _message = 'Could not create a pairing code. Pair this device first '
+              'and check the connection.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isBusy = false);
+    }
   }
 }

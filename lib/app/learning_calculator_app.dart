@@ -26,6 +26,7 @@ class LearningCalculatorApp extends StatelessWidget {
       ),
       home: CalculatorHomePage(
         localStore: localStore,
+        syncClient: syncClient,
         guardianAccess: guardianAccess,
       ),
     );

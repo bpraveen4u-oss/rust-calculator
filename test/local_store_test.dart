@@ -132,6 +132,49 @@ void main() {
       },
     );
 
+    test(
+      'retains the pairing link and offline outbox after reopening SQLite',
+      () async {
+        final databasePath = path.join(
+          Directory.current.path,
+          '.local_store_sync_persistence_test.db',
+        );
+        persistentDatabasePath = databasePath;
+        await databaseFactoryFfi.deleteDatabase(databasePath);
+        store = SqliteLocalStore(
+          databaseFactory: databaseFactoryFfi,
+          databasePath: databasePath,
+        );
+        await store.initialize();
+        final profile = await store.createProfile(grade: 4);
+        await store.updateProfileGrade(profile.id, grade: 5);
+        final entry = await store.addHistoryEntry(
+          profileId: profile.id,
+          expression: '8 × 7',
+          result: '56',
+          timestamp: DateTime.now().toUtc(),
+          topic: 'multiplication',
+        );
+        await store.linkSyncProfile(
+          localProfileId: profile.id,
+          remoteProfileId: 'remote-profile',
+        );
+        await store.close();
+
+        store = SqliteLocalStore(
+          databaseFactory: databaseFactoryFfi,
+          databasePath: databasePath,
+        );
+
+        final linked = (await store.getSyncProfiles()).single;
+        final pending = await store.getPendingSyncChanges(profile.id);
+        expect(linked.remoteProfileId, 'remote-profile');
+        expect(pending?.gradeChanged, isTrue);
+        expect(pending?.history.single.id, entry.id);
+        expect(await store.getPendingSyncCount(), 2);
+      },
+    );
+
     test('rejects grades outside the supported range', () async {
       await store.initialize();
 

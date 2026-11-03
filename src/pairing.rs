@@ -61,6 +61,7 @@ struct PairRequest {
 struct PairedDevice {
     device_id: String,
     device_token: String,
+    profile_id: String,
 }
 
 #[derive(Serialize)]
@@ -274,7 +275,7 @@ async fn create_paired_device(
         "UPDATE profiles SET last_activity_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') \
          WHERE profile_id = ?",
     )
-    .bind(profile_id)
+    .bind(&profile_id)
     .execute(&mut *transaction)
     .await
     .map_err(|_| ())?;
@@ -283,6 +284,7 @@ async fn create_paired_device(
     Ok(PairOutcome::Created(PairedDevice {
         device_id,
         device_token,
+        profile_id,
     }))
 }
 
