@@ -37,7 +37,7 @@ local database that the tests remove afterward.
 
 ## Rust service foundation
 
-This crate is the local Rust service foundation for the Learning Calculator. It uses Axum/Tokio, SQLx, and SQLite. **It currently exposes only `GET /health/ready`; pairing and learner synchronization are not implemented or enabled. Do not send real learner data to this service.**
+This crate is the local Rust service foundation for the Learning Calculator. It uses Axum/Tokio, SQLx, and SQLite. The production application exposes only `GET /health/ready` by default. Sync contract handlers are exercised through a test-only router; mounting them in the server requires the explicit `sync-legal-approved` Cargo feature. **Legal/privacy approval has not been granted. Do not enable that feature or send real learner data to this service.**
 
 ### Run locally
 
@@ -62,7 +62,9 @@ Configuration failures are reported explicitly (`DATABASE_URL` is required and `
 
 ### Persistence
 
-`migrations/0001_initial_schema.sql` defines pseudonymous profiles, device references, hashed pairing-code records, and minimal history fields (expression, result, timestamp, and topic tag). It intentionally contains no learner name, email, contacts, precise location, or freeform notes. The migration is applied at startup; future API work must remain blocked until the parental-consent approach has passed legal/privacy review.
+`migrations/0001_initial_schema.sql` defines pseudonymous profiles, device references, hashed pairing-code records, and minimal history fields (expression, result, timestamp, and topic tag). Migration `0002` adds a unique hash slot for paired-device bearer credentials. The sync HTTP contract supports `GET` and `POST /v1/profiles/{profile_id}/sync`; requests require a paired-device bearer token scoped to that profile. Payloads accept only grade and history entries, and entries are append-only and de-duplicated by entry ID. Unknown fields and freeform non-math values are rejected.
+
+The contract response contains only the pseudonymous profile ID, grade, and the allowed history fields. No learner name, email, contacts, precise location, or notes are stored by these endpoints. The `sync-legal-approved` feature is a deliberate compile-time production gate, not evidence of approval; it must remain disabled until U.S. legal/privacy review approves the parental-consent approach. The test-only router is not mounted by the normal server application.
 
 ### Tests and conventions
 
