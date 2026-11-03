@@ -10,3 +10,7 @@ android/.gradle/
 android/local.properties
 ios/Flutter/Generated.xcconfig
 ios/Flutter/flutter_export_environment.sh
+/target/
+*.db
+*.db-shm
+*.db-wal
