@@ -1,6 +1,4 @@
-abstract interface class LocalStore {
-  Future<void> initialize();
-}
+export 'local_store.dart';
 
 abstract interface class SyncClient {
   Future<void> syncPendingChanges();
