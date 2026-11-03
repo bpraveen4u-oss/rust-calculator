@@ -48,7 +48,7 @@ void main() {
         find.text('Cloud sync is disabled pending legal/privacy review.'),
         findsOneWidget,
       );
-      expect(find.textContaining('No recovery key'), findsOneWidget);
+      expect(find.textContaining('no recovery key'), findsOneWidget);
       expect(
         tester.widget<FilledButton>(
           find.byKey(const Key('guardian-start-pairing')),
